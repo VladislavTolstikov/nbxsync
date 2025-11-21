@@ -65,7 +65,7 @@ class SyncTemplatesJob:
 
                     # Update the template object if needed
                     if set(zabbixtemplate.interface_requirements) != set(final_requirements):
-                        zabbixtemplate.interface_requirements = list(interface_requirements)
+                        zabbixtemplate.interface_requirements = list(final_requirements)
                         zabbixtemplate.save()
 
                 # Next logic: Cleanup all templates from Netbox that aren't present in Zabbix anymore

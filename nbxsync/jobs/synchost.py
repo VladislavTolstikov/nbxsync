@@ -64,12 +64,13 @@ class SyncHostJob:
                 safe_sync(ProxyGroupSync, assignment.zabbixproxygroup)
 
             # Sync the actual Host
-            safe_sync(HostSync, assignment, extra_args={'all_objects': all_objects})
+            safe_sync(HostSync, assignment, extra_args={'all_objects': all_objects, 'skip_templates': True})
 
             # Once the Host exists and we have a HostId, time to sync the interfaces
             for hostinterface in all_objects['hostinterfaces']:
                 safe_sync(HostInterfaceSync, hostinterface, extra_args={'hostid': assignment.hostid})
 
+            # Sync templates after interfaces are present
             safe_sync(HostSync, assignment, extra_args={'all_objects': all_objects})
 
         except Exception as e:
