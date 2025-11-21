@@ -48,8 +48,14 @@ class HostSync(ZabbixSyncBase):
         }
 
     def get_update_params(self, **kwargs) -> dict:
-        self.templates = self.get_template_attributes()
-        templates_clear = self.get_templates_clear_attributes()
+        skip_templates = self.context.get('skip_templates', False)
+
+        if skip_templates:
+            self.templates = {}
+            templates_clear = {}
+        else:
+            self.templates = self.get_template_attributes()
+            templates_clear = self.get_templates_clear_attributes()
 
         # Start by creating the full merged dict using unpacking
         params = {
