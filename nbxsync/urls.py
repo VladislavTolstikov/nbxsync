@@ -19,6 +19,7 @@ urlpatterns = [
     path('zabbixserver/<int:pk>/changelog/', ObjectChangeLogView.as_view(), name='zabbixserver_changelog', kwargs={'model': ZabbixServer}),
     path('zabbixserver/<int:pk>/templates/', ZabbixServerTemplatesView.as_view(), name='zabbixserver_templates'),
     path('zabbixserver/<int:pk>/templates/sync/', TriggerTemplateSyncJobView.as_view(), name='zabbixserver_templatessync'),
+    path('zabbixserver/<int:pk>/sync-all/', TriggerZabbixServerSyncAllView.as_view(), name='zabbixserver_syncall'),
     # Zabbix Server Assignment
     path('zabbixserverassignment/', ZabbixServerAssignmentListView.as_view(), name='zabbixserverassignment_list'),
     path('zabbixserverassignment/add/', ZabbixServerAssignmentEditView.as_view(), name='zabbixserverassignment_add'),

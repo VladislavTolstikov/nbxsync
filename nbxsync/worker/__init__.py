@@ -1,7 +1,9 @@
 import logging
 
 from django_rq import job
+
 from nbxsync.jobs import *
+from nbxsync.worker.syncall import syncall
 
 logger = logging.getLogger('worker')
 

@@ -1,0 +1,4 @@
+<form method="post" action="{% url 'plugins:nbxsync:zabbixserver_syncall' pk=object.pk %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Sync ALL</button>
+</form>
