@@ -48,6 +48,7 @@ class SyncAllWorkerTests(SimpleTestCase):
             (assignment, {'hostgroups': [hostgroup], 'hostinterfaces': [hostinterface]})
         ]
 
+
         def side_effect(sync_class, *args, **kwargs):
             if sync_class is worker.HostSync and not kwargs.get('extra_args', {}).get('skip_templates'):
                 raise APIRequestError({'data': 'already exists'})
