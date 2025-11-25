@@ -13,6 +13,7 @@ from nbxsync.utils.sync.safe_sync import safe_sync
 
 logger = logging.getLogger(__name__)
 
+StageData = List[Tuple[ZabbixServerAssignment, dict]]
 
 StageData = List[Tuple[ZabbixServerAssignment, dict]]
 
@@ -168,9 +169,7 @@ def _log_assignment_counts(assignments: StageData) -> None:
 
 def syncall(zabbixserver):
     job = get_current_job()
-    if job:
-        job.meta["progress"] = 0
-        job.save_meta()
+    assignments = _collect_assignment_data(zabbixserver)
 
     assignments = _collect_assignment_data(zabbixserver)
     proxy_groups = list(ZabbixProxyGroup.objects.filter(zabbixserver=zabbixserver))
