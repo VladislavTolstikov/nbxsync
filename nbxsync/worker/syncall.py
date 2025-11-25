@@ -146,10 +146,12 @@ def _sync_hosts(assignments: StageData, *, include_templates: bool, progress: _P
 
 def _collect_assignment_data(zabbixserver) -> StageData:
     data: StageData = []
-    assignments = ZabbixServerAssignment.objects.filter(zabbixserver=zabbixserver).select_related("assigned_object")
+    assignments = ZabbixServerAssignment.objects.filter(zabbixserver=zabbixserver)
     for assignment in assignments:
+        # assigned_object — это GFK, брать его как раньше
         data.append((assignment, get_assigned_zabbixobjects(assignment.assigned_object)))
     return data
+
 
 
 def _log_assignment_counts(assignments: StageData) -> None:
