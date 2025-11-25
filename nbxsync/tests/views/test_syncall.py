@@ -15,6 +15,9 @@ class SyncAllImportTests(SimpleTestCase):
     def test_import_urls(self):
         import nbxsync.urls  # noqa: F401
 
+    def test_import_syncall_view(self):
+        import nbxsync.views.syncall  # noqa: F401
+
 
 class TriggerZabbixServerSyncAllViewTests(TestCase):
     def setUp(self):
