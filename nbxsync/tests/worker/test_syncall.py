@@ -38,12 +38,8 @@ class SyncAllWorkerTests(SimpleTestCase):
         )
 
     @patch('nbxsync.worker.syncall._collect_assignment_data')
-    @patch('nbxsync.worker.syncall.ZabbixProxy.objects.filter')
-    @patch('nbxsync.worker.syncall.ZabbixProxyGroup.objects.filter')
     @patch('nbxsync.worker.syncall.safe_sync')
-    def test_idempotent_on_already_exists(
-        self, mock_safe_sync, mock_proxygroup_filter, mock_proxy_filter, mock_collect_data
-    ):
+    def test_idempotent_on_already_exists(self, mock_safe_sync, mock_collect_data):
         assignment = MagicMock(hostid=1)
         hostgroup = MagicMock(pk=1)
         hostinterface = MagicMock()
@@ -51,8 +47,7 @@ class SyncAllWorkerTests(SimpleTestCase):
         mock_collect_data.return_value = [
             (assignment, {'hostgroups': [hostgroup], 'hostinterfaces': [hostinterface]})
         ]
-        mock_proxygroup_filter.return_value = []
-        mock_proxy_filter.return_value = []
+
 
         def side_effect(sync_class, *args, **kwargs):
             if sync_class is worker.HostSync and not kwargs.get('extra_args', {}).get('skip_templates'):
