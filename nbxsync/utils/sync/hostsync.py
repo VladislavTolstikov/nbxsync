@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime, timedelta
 
@@ -12,6 +13,9 @@ from nbxsync.choices.zabbixstatus import ZabbixHostStatus
 from nbxsync.models import ZabbixHostInterface, ZabbixMaintenance, ZabbixMaintenancePeriod, ZabbixMaintenanceObjectAssignment
 
 
+logger = logging.getLogger(__name__)
+
+
 class HostSync(ZabbixSyncBase):
     id_field = 'hostid'
     sot_key = 'host'
@@ -20,8 +24,7 @@ class HostSync(ZabbixSyncBase):
         return self.api.host
 
     def get_name_value(self):
-        return str(self.obj.assigned_object)
-        # return self.obj.assigned_object.name
+        return self.obj.assigned_object.name
 
     def get_create_params(self) -> dict:
         status = self.obj.assigned_object.status
@@ -36,8 +39,8 @@ class HostSync(ZabbixSyncBase):
         self.verify_maintenancewindow()
 
         return {
-            'host': self.sanitize_string(input_str=str(self.obj.assigned_object)),
-            'name': str(self.obj.assigned_object),
+            'host': self.sanitize_string(input_str=self.obj.assigned_object.name),
+            'name': self.obj.assigned_object.name,
             'groups': self.get_groups(),
             'status': host_status,
             **self.get_proxy_or_proxygroup(),
@@ -71,6 +74,34 @@ class HostSync(ZabbixSyncBase):
 
     def result_key(self) -> str:
         return 'hostids'
+
+    def sync(self) -> None:
+        obj_id = self.get_id()
+
+        if obj_id:
+            found_by_id = self.find_by_id()
+            if len(found_by_id) != 1:
+                raise RuntimeError(f'{self.__class__.__name__} with hostid {obj_id} not found in Zabbix.')
+
+            object_id = found_by_id[0][self.get_id_key()]
+            self.set_id(object_id)
+            self.obj.save()
+            self.sync_to_zabbix(object_id)
+            logger.debug(f'Found and synced {self.__class__.__name__} ID: {object_id}')
+            return
+
+        try:
+            object_id = self.try_create()
+            if not object_id:
+                raise RuntimeError(f'{self.__class__.__name__} creation returned no ID.')
+        except RuntimeError as err:
+            logger.warning(str(err))
+            self.obj.update_sync_info(success=False, message=str(err))
+            raise
+
+        self.set_id(object_id)
+        self.obj.save()
+        self.obj.update_sync_info(success=True)
 
     def sync_from_zabbix(self, data: dict) -> None:
         return {}
@@ -390,6 +421,10 @@ class HostSync(ZabbixSyncBase):
                     timeout=9000,
                 )
             )
+
+    def find_by_name(self):
+        # Prevent resolving hosts by name to avoid cross-renames between similar objects.
+        return []
 
     def delete(self) -> None:
         if not self.obj.hostid:
