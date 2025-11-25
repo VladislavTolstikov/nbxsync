@@ -1,49 +1,169 @@
 import logging
-from typing import Callable, Iterable, Optional
+from collections import defaultdict
+from typing import Iterable, List, Tuple
 
 from rq import get_current_job
+from zabbix_utils.exceptions import APIRequestError
 
 from nbxsync.jobs.synctemplates import SyncTemplatesJob
-from nbxsync.models import (
-    ZabbixHostgroupAssignment,
-    ZabbixMaintenance,
-    ZabbixProxy,
-    ZabbixProxyGroup,
-    ZabbixServerAssignment,
-)
+from nbxsync.models import ZabbixHostInterface, ZabbixProxy, ZabbixProxyGroup, ZabbixServerAssignment
 from nbxsync.utils import get_assigned_zabbixobjects
-from nbxsync.utils.sync import HostGroupSync, HostInterfaceSync, HostSync, MaintenanceSync, ProxyGroupSync, ProxySync
+from nbxsync.utils.sync import HostGroupSync, HostInterfaceSync, HostSync, ProxyGroupSync, ProxySync
 from nbxsync.utils.sync.safe_sync import safe_sync
 
 logger = logging.getLogger(__name__)
 
 
-def _update_progress(job, completed: int, total: int) -> None:
-    if not job or total <= 0:
-        return
+StageData = List[Tuple[ZabbixServerAssignment, dict]]
 
-    job.meta["progress"] = min(100, int((completed / total) * 100))
-    job.save_meta()
+
+class _ProgressTracker:
+    def __init__(self, job, total: int) -> None:
+        self.job = job
+        self.total = total
+        self.completed = 0
+
+    def increment(self) -> None:
+        if self.total <= 0:
+            return
+
+        self.completed += 1
+        if self.job:
+            self.job.meta["progress"] = min(100, int((self.completed / self.total) * 100))
+            self.job.save_meta()
+
+
+def _log_stage(stage: str, count: int, action: str) -> None:
+    logger.info("Sync All stage '%s' %s (%s objects)", stage, action, count)
 
 
 def _bulk_safe_sync(
     sync_class,
     objects: Iterable,
-    job,
-    completed: int,
-    total: int,
-    extra_args: Optional[Callable] = None,
-) -> int:
-    for obj in objects:
+    *,
+    stage: str,
+    progress: _ProgressTracker | None,
+    extra_args=None,
+) -> None:
+    items = list(objects)
+    _log_stage(stage, len(items), "starting")
+    for obj in items:
         try:
-            kwargs = extra_args(obj) if callable(extra_args) else None
-            safe_sync(sync_class, obj, extra_args=kwargs or {})
-        except Exception:
-            logger.exception("Failed to sync %s for %s", sync_class.__name__, obj)
-        completed += 1
-        _update_progress(job, completed, total)
+            kwargs = extra_args(obj) if callable(extra_args) else (extra_args or {})
+            safe_sync(sync_class, obj, extra_args=kwargs)
+        except Exception as exc:
+            logger.exception(
+                "Failed to sync %s (model=%s pk=%s): %s",
+                sync_class.__name__,
+                obj.__class__.__name__ if obj is not None else "None",
+                getattr(obj, "pk", None),
+                exc,
+            )
+        else:
+            if progress:
+                progress.increment()
+    _log_stage(stage, len(items), "completed")
 
-    return completed
+
+def _collect_host_groups(assignments: StageData) -> list:
+    unique_ids = set()
+    hostgroups = []
+    for _, all_objects in assignments:
+        for hostgroup in all_objects.get("hostgroups", []):
+            key = getattr(hostgroup, "pk", None)
+            if key in unique_ids:
+                continue
+            unique_ids.add(key)
+            hostgroups.append(hostgroup)
+
+    return hostgroups
+
+
+def _collect_host_interfaces(assignments: StageData) -> List[Tuple[ZabbixHostInterface, int]]:
+    interfaces: List[Tuple[ZabbixHostInterface, int]] = []
+    for assignment, all_objects in assignments:
+        hostid = assignment.hostid
+        for hostinterface in all_objects.get("hostinterfaces", []):
+            interfaces.append((hostinterface, hostid))
+
+    return interfaces
+
+
+def _sync_host_groups(hostgroups: Iterable, *, progress: _ProgressTracker | None) -> None:
+    _bulk_safe_sync(HostGroupSync, hostgroups, stage="Host groups", progress=progress)
+
+
+def _sync_host_interfaces(
+    interfaces: List[Tuple[ZabbixHostInterface, int]], *, progress: _ProgressTracker | None
+) -> None:
+    _log_stage("Host interfaces", len(interfaces), "starting")
+    for hostinterface, hostid in interfaces:
+        try:
+            safe_sync(HostInterfaceSync, hostinterface, extra_args={"hostid": hostid})
+        except Exception as exc:
+            logger.exception(
+                "Failed to sync HostInterface (model=%s pk=%s): %s",
+                hostinterface.__class__.__name__,
+                getattr(hostinterface, "pk", None),
+                exc,
+            )
+        else:
+            if progress:
+                progress.increment()
+    _log_stage("Host interfaces", len(interfaces), "completed")
+
+
+def _sync_hosts(assignments: StageData, *, include_templates: bool, progress: _ProgressTracker | None) -> None:
+    stage = "Servers" if not include_templates else "Templates"
+    _log_stage(stage, len(assignments), "starting")
+    for assignment, all_objects in assignments:
+        try:
+            safe_sync(
+                HostSync,
+                assignment,
+                extra_args={"all_objects": all_objects, "skip_templates": not include_templates},
+            )
+        except APIRequestError as exc:
+            logger.exception(
+                "Zabbix API error while syncing host (model=%s pk=%s): %s",
+                assignment.__class__.__name__,
+                getattr(assignment, "pk", None),
+                exc,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to sync host (model=%s pk=%s): %s",
+                assignment.__class__.__name__,
+                getattr(assignment, "pk", None),
+                exc,
+            )
+        else:
+            if progress:
+                progress.increment()
+    _log_stage(stage, len(assignments), "completed")
+
+
+def _collect_assignment_data(zabbixserver) -> StageData:
+    data: StageData = []
+    assignments = ZabbixServerAssignment.objects.filter(zabbixserver=zabbixserver).select_related("assigned_object")
+    for assignment in assignments:
+        data.append((assignment, get_assigned_zabbixobjects(assignment.assigned_object)))
+    return data
+
+
+def _log_assignment_counts(assignments: StageData) -> None:
+    counters = defaultdict(int)
+    for _, all_objects in assignments:
+        counters["macros"] += len(all_objects.get("macros", []))
+        counters["tags"] += len(all_objects.get("tags", []))
+        counters["inventory"] += 1 if all_objects.get("hostinventory") else 0
+
+    for name, count in (
+        ("Macros", counters["macros"]),
+        ("Tags", counters["tags"]),
+        ("Inventory", counters["inventory"]),
+    ):
+        _log_stage(name, count, "completed")
 
 
 def syncall(zabbixserver):
@@ -52,63 +172,34 @@ def syncall(zabbixserver):
         job.meta["progress"] = 0
         job.save_meta()
 
+    assignments = _collect_assignment_data(zabbixserver)
     proxy_groups = list(ZabbixProxyGroup.objects.filter(zabbixserver=zabbixserver))
     proxies = list(ZabbixProxy.objects.filter(zabbixserver=zabbixserver))
-    maintenances = list(ZabbixMaintenance.objects.filter(zabbixserver=zabbixserver))
-    hostgroup_assignments = list(
-        ZabbixHostgroupAssignment.objects.filter(zabbixhostgroup__zabbixserver=zabbixserver)
-    )
-    assignments = list(ZabbixServerAssignment.objects.filter(zabbixserver=zabbixserver))
+    hostgroups = _collect_host_groups(assignments)
+    hostinterfaces = _collect_host_interfaces(assignments)
 
-    total_steps = (
-        len(proxy_groups)
+    total_objects = (
+        len(assignments) * 2
+        + len(proxy_groups)
         + len(proxies)
-        + len(maintenances)
-        + len(hostgroup_assignments)
-        + len(assignments)
-        + 1
-    ) or 1
+        + len(hostgroups)
+        + len(hostinterfaces)
+    )
+    progress = _ProgressTracker(job, total_objects)
 
-    completed = 0
-
-    completed = _bulk_safe_sync(ProxyGroupSync, proxy_groups, job, completed, total_steps)
-    completed = _bulk_safe_sync(ProxySync, proxies, job, completed, total_steps)
-    completed = _bulk_safe_sync(MaintenanceSync, maintenances, job, completed, total_steps)
-    completed = _bulk_safe_sync(HostGroupSync, hostgroup_assignments, job, completed, total_steps)
-
-    for assignment in assignments:
-        try:
-            all_objects = get_assigned_zabbixobjects(assignment.assigned_object)
-
-            for hostgroup in all_objects.get("hostgroups", []):
-                safe_sync(HostGroupSync, hostgroup)
-
-            if assignment.zabbixproxy and assignment.zabbixproxy.proxygroup:
-                safe_sync(ProxyGroupSync, assignment.zabbixproxy.proxygroup)
-            if assignment.zabbixproxy:
-                safe_sync(ProxySync, assignment.zabbixproxy)
-
-            if assignment.zabbixproxygroup:
-                safe_sync(ProxyGroupSync, assignment.zabbixproxygroup)
-
-            safe_sync(HostSync, assignment, extra_args={"all_objects": all_objects, "skip_templates": True})
-
-            for hostinterface in all_objects.get("hostinterfaces", []):
-                safe_sync(HostInterfaceSync, hostinterface, extra_args={"hostid": assignment.hostid})
-
-            safe_sync(HostSync, assignment, extra_args={"all_objects": all_objects})
-        except Exception:
-            logger.exception("Failed to sync host assignment %s", assignment)
-
-        completed += 1
-        _update_progress(job, completed, total_steps)
+    _sync_hosts(assignments, include_templates=False, progress=progress)
+    _bulk_safe_sync(ProxyGroupSync, proxy_groups, stage="Proxy groups", progress=progress)
+    _bulk_safe_sync(ProxySync, proxies, stage="Proxies", progress=progress)
+    _sync_host_groups(hostgroups, progress=progress)
+    _sync_host_interfaces(hostinterfaces, progress=progress)
+    _sync_hosts(assignments, include_templates=True, progress=progress)
+    _log_assignment_counts(assignments)
 
     try:
         SyncTemplatesJob(instance=zabbixserver).run()
     except Exception:
         logger.exception("Failed to sync templates for %s", zabbixserver)
-    finally:
-        completed = total_steps
-        _update_progress(job, completed, total_steps)
 
-    _update_progress(job, total_steps, total_steps)
+    if job and progress.total == progress.completed:
+        job.meta["progress"] = 100
+        job.save_meta()
