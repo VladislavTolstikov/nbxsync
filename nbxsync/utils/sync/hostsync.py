@@ -20,6 +20,10 @@ class HostSync(ZabbixSyncBase):
     id_field = 'hostid'
     sot_key = 'host'
 
+    def __init__(self, api, netbox_obj, **kwargs):
+        super().__init__(api, netbox_obj, **kwargs)
+        self.all_objects = kwargs.get('all_objects') or {}
+
     def api_object(self):
         return self.api.host
 
@@ -127,7 +131,7 @@ class HostSync(ZabbixSyncBase):
 
     def get_defined_macros(self) -> list:
         result = []
-        for macro in self.context.get('all_objects').get('macros'):
+        for macro in self.all_objects.get('macros', []):
             result.append(
                 {
                     'macro': str(macro),
@@ -158,7 +162,7 @@ class HostSync(ZabbixSyncBase):
 
     def get_snmp_macros(self) -> list:
         result = []
-        hostinterfaces = self.context.get('all_objects', {}).get('hostinterfaces', [])
+        hostinterfaces = self.all_objects.get('hostinterfaces', [])
         snmpconf = self.pluginsettings.snmpconfig
 
         for hostinterface in hostinterfaces:
@@ -225,7 +229,7 @@ class HostSync(ZabbixSyncBase):
 
     def get_hostinterface_attributes(self) -> dict:
         result = {}
-        for hostinterface in self.context.get('all_objects', {}).get('hostinterfaces', []):
+        for hostinterface in self.all_objects.get('hostinterfaces', []):
             if hostinterface.type == ZabbixHostInterfaceTypeChoices.AGENT:
                 result['tls_connect'] = hostinterface.tls_connect
                 result['tls_accept'] = 0
@@ -245,7 +249,7 @@ class HostSync(ZabbixSyncBase):
         return result
 
     def get_hostinterface_types(self) -> list:
-        hostinterfaces = self.context.get('all_objects', {}).get('hostinterfaces', [])
+        hostinterfaces = self.all_objects.get('hostinterfaces', [])
         return list({interface.type for interface in hostinterfaces})
 
     def get_templates_clear_attributes(self) -> dict:
@@ -288,7 +292,7 @@ class HostSync(ZabbixSyncBase):
         result = []
         hostinterface_types = set(self.get_hostinterface_types() or [])
 
-        for assigned_template in self.context.get('all_objects', {}).get('templates', []):
+        for assigned_template in self.all_objects.get('templates', []):
             required = set(assigned_template.zabbixtemplate.interface_requirements or [])
 
             # Extract special modifiers
@@ -320,7 +324,7 @@ class HostSync(ZabbixSyncBase):
         zabbix_status = status_mapping.get(status)
 
         result = []
-        for assigned_tag in self.context.get('all_objects').get('tags'):
+        for assigned_tag in self.all_objects.get('tags', []):
             value, _status = assigned_tag.render()
             result.append({'tag': assigned_tag.zabbixtag.tag, 'value': value})
 
@@ -331,7 +335,7 @@ class HostSync(ZabbixSyncBase):
 
     def get_groups(self) -> list:
         groups = []
-        for group in self.obj.assigned_objects.get('hostgroups', []):
+        for group in self.all_objects.get('hostgroups', []):
             # 1) If we already know the Zabbix groupid, use it (fast path).
             gid = getattr(getattr(group, 'zabbixhostgroup', None), 'groupid', None)
             if gid:
@@ -359,7 +363,7 @@ class HostSync(ZabbixSyncBase):
         return groups
 
     def get_hostinventory(self) -> dict:
-        hostinventory = self.context.get('all_objects', {}).get('hostinventory', None)
+        hostinventory = self.all_objects.get('hostinventory', None)
         inventory = {}
         inventory_mode = 0
 
@@ -490,7 +494,7 @@ class HostSync(ZabbixSyncBase):
             return {}
 
         # Extract the currently expected interfaces
-        expected_hostinterfaces = self.context.get('all_objects', {}).get('hostinterfaces', [])
+        expected_hostinterfaces = self.all_objects.get('hostinterfaces', [])
         expected_ids = {int(expected_hostinterface.interfaceid) for expected_hostinterface in expected_hostinterfaces}
 
         # Get currently assigned hostinterface from Zabbix
