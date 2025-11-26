@@ -75,3 +75,6 @@ class HostGroupSync(ZabbixSyncBase):
             # print('HostGroupSync: Detected template value, skipping groupid usage.')
             return None
         return super().get_id()
+
+    def get_natural_key_filter(self, create_params: dict) -> dict:
+        return {'name': create_params.get('name')}

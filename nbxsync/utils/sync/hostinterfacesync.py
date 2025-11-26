@@ -117,3 +117,17 @@ class HostInterfaceSync(ZabbixSyncBase):
 
         except Exception as err:
             self.obj.update_sync_info(success=False, message=str(err))
+
+    def get_natural_key_filter(self, create_params: dict) -> dict:
+        filter_params = {
+            'hostid': create_params.get('hostid'),
+            'type': create_params.get('type'),
+            'port': str(create_params.get('port')),
+        }
+        ip = create_params.get('ip')
+        dns = create_params.get('dns')
+        if ip:
+            filter_params['ip'] = ip
+        if dns:
+            filter_params['dns'] = dns
+        return filter_params

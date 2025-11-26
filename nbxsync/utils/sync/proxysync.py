@@ -127,10 +127,13 @@ class ProxySync(ZabbixSyncBase):
         self.obj.port = data.get('port', '')
         self.obj.local_address = data.get('local_address')
         self.obj.local_port = int(data.get('local_port') or 10051)
-        self.obj.allowed_addresses = [address.strip() for address in data.get('allowed_addresses', '').split(',') if address]
+            self.obj.allowed_addresses = [address.strip() for address in data.get('allowed_addresses', '').split(',') if address]
 
         try:
             self.obj.save()
             self.obj.update_sync_info(success=True, message='')
         except Exception as _err:
             self.obj.update_sync_info(success=False, message=str(_err))
+
+    def get_natural_key_filter(self, create_params: dict) -> dict:
+        return {'name': create_params.get('name')}

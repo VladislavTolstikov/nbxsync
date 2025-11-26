@@ -95,14 +95,14 @@ class HostSync(ZabbixSyncBase):
                 )
                 self.obj.hostid = None
                 self.obj.save(update_fields=['hostid'])
-                self.sync_to_zabbix(object_id=None)
+                self.create_in_zabbix()
                 return
 
             self.sync_to_zabbix(object_id=object_id)
             logger.debug(f'Found and synced {self.__class__.__name__} ID: {object_id}')
             return
 
-        self.sync_to_zabbix(object_id=None)
+        self.create_in_zabbix()
 
     def _create_host(self) -> str:
         try:
@@ -375,7 +375,7 @@ class HostSync(ZabbixSyncBase):
                 _status = False
 
             if _status and name:
-                zbx_result = self.api.hostgroup.get(search={'name': name}) or []
+                zbx_result = self.api.hostgroup.get(filter={'name': name}) or []
                 if len(zbx_result) == 1 and 'groupid' in zbx_result[0]:
                     groups.append({'groupid': zbx_result[0]['groupid']})
                 elif zbx_result:
@@ -454,6 +454,9 @@ class HostSync(ZabbixSyncBase):
     def find_by_name(self):
         # Prevent resolving hosts by name to avoid cross-renames between similar objects.
         return []
+
+    def get_natural_key_filter(self, create_params: dict) -> dict:
+        return {'host': create_params.get('host')}
 
     def delete(self) -> None:
         if not self.obj.hostid:

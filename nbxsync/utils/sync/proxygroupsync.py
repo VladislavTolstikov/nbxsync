@@ -40,3 +40,6 @@ class ProxyGroupSync(ZabbixSyncBase):
         except Exception as err:
             self.obj.update_sync_info(success=False, message=str(err))
             raise
+
+    def get_natural_key_filter(self, create_params: dict) -> dict:
+        return {'name': create_params.get('name')}
