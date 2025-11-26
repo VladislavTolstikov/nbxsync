@@ -1,11 +1,15 @@
 import logging
 
+from django.db import IntegrityError
+from zabbix_utils.exceptions import APIRequestError
+
 logger = logging.getLogger(__name__)
 from nbxsync.choices.syncsot import SyncSOT
 from nbxsync.settings import get_plugin_settings
 from nbxsync.utils.resolve_attr import resolve_attr
 from nbxsync.utils.resolve_zabbixserver import resolve_zabbixserver
 from nbxsync.utils.set_nested_attr import set_nested_attr
+from nbxsync.utils.sync.safe_sync import _is_already_exists_error
 
 
 class ZabbixSyncBase:
@@ -35,48 +39,15 @@ class ZabbixSyncBase:
 
     def sync(self) -> None:
         obj_id = self.get_id()
-        found = None
 
         if obj_id:
-            # Try finding by ID
-            found_by_id = self.find_by_id()
-            if len(found_by_id) == 1:
-                found = found_by_id[0]
-            else:
-                # Fallback: try finding by name
-                found_by_name = self.find_by_name()
-                if len(found_by_name) == 1:
-                    found = found_by_name[0]
-        else:
-            # No ID: try finding by name
-            found_by_name = self.find_by_name()
-            if len(found_by_name) == 1:
-                found = found_by_name[0]
+            existing = self.find_by_id()
+            if existing:
+                self.sync_to_zabbix(obj_id)
+                logger.debug(f'Found and synced {self.__class__.__name__} ID: {obj_id}')
+                return
 
-        if found:
-            # Object found, handle based on source of truth
-            id_key = self.id_field.split('.')[-1]  # Use only the final part of the id_field field
-            object_id = found[id_key]
-            self.set_id(object_id)
-            if self.sot == SyncSOT.ZABBIX:
-                self.sync_from_zabbix(found)
-            elif self.sot == SyncSOT.NETBOX:
-                self.sync_to_zabbix(object_id)
-            self.obj.save()
-            logger.debug(f'Found and synced {self.__class__.__name__} ID: {object_id}')
-        else:
-            # Object not found: create in Zabbix, always
-            try:
-                object_id = self.try_create()
-                if not object_id:
-                    raise RuntimeError(f'{self.__class__.__name__} creation returned no ID.')
-            except RuntimeError as err:
-                logger.warning(str(err))
-                self.obj.update_sync_info(success=False, message=str(err))
-                raise
-            self.set_id(object_id)
-            self.obj.save()
-            self.obj.update_sync_info(success=True)
+        self.create_in_zabbix()
 
     def try_create(self) -> str:
         try:
@@ -89,6 +60,55 @@ class ZabbixSyncBase:
         except Exception as err:
             msg = f'{self.__class__.__name__} creation failed: {err}'
             raise RuntimeError(msg)
+
+    def create_or_get(self, *, create_params=None, natural_key_filter=None):
+        params = create_params or self.get_create_params()
+        id_key = self.get_id_key()
+        try:
+            result = self.api_object().create(**params)
+            return result.get(self.result_key(), [None])[0]
+        except APIRequestError as err:
+            if not _is_already_exists_error(err):
+                raise
+            filter_params = natural_key_filter or self.get_natural_key_filter(params)
+            existing = self.api_object().get(filter=filter_params, output=[id_key])
+            if len(existing) != 1 or id_key not in existing[0]:
+                raise RuntimeError(
+                    f'{self.__class__.__name__} already exists in Zabbix but could not be uniquely resolved by natural key.'
+                ) from err
+            return existing[0][id_key]
+
+    def create_in_zabbix(self):
+        object_id = self.create_or_get()
+        if not object_id:
+            raise RuntimeError(f'{self.__class__.__name__} creation returned no ID.')
+
+        try:
+            self.set_id(object_id)
+            try:
+                self.obj.save(update_fields=[self.get_id_key()])
+            except (TypeError, ValueError):
+                self.obj.save()
+        except IntegrityError:
+            zabbixserver = self.resolve_zabbixserver(self.obj)
+            current = self.obj.__class__.objects.filter(**{self.get_id_key(): object_id, 'zabbixserver': zabbixserver}).first()
+            if current:
+                logger.warning(
+                    '%s with id %s already exists for Zabbix server %s, reusing existing row',
+                    self.__class__.__name__,
+                    object_id,
+                    getattr(zabbixserver, 'id', zabbixserver),
+                )
+                self.obj = current
+            else:
+                raise
+
+        self.obj.update_sync_info(success=True)
+        return object_id
+
+    def get_natural_key_filter(self, create_params: dict) -> dict:
+        name_key = self.name_field.split('.')[-1] if self.name_field else 'name'
+        return {name_key: create_params.get(name_key)}
 
     def find_by_name(self):
         name_key = 'name'

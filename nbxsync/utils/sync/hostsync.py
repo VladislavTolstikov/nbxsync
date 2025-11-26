@@ -20,6 +20,10 @@ class HostSync(ZabbixSyncBase):
     id_field = 'hostid'
     sot_key = 'host'
 
+    def __init__(self, api, netbox_obj, **kwargs):
+        super().__init__(api, netbox_obj, **kwargs)
+        self.all_objects = kwargs.get('all_objects') or {}
+
     def api_object(self):
         return self.api.host
 
@@ -38,9 +42,12 @@ class HostSync(ZabbixSyncBase):
 
         self.verify_maintenancewindow()
 
+        nb_name = str(self.obj.assigned_object)
+        host_value = self.sanitize_string(input_str=nb_name)[:64]
+
         return {
-            'host': self.sanitize_string(input_str=self.obj.assigned_object.name),
-            'name': self.obj.assigned_object.name,
+            'host': host_value,
+            'name': nb_name,
             'groups': self.get_groups(),
             'status': host_status,
             **self.get_proxy_or_proxygroup(),
@@ -75,21 +82,29 @@ class HostSync(ZabbixSyncBase):
     def result_key(self) -> str:
         return 'hostids'
 
-    def sync(self) -> None:
-        obj_id = self.get_id()
+    def sync(self, obj_id=None) -> None:
+        object_id = obj_id if obj_id is not None else self.obj.hostid
 
-        if obj_id:
-            found_by_id = self.find_by_id()
-            if len(found_by_id) != 1:
-                raise RuntimeError(f'{self.__class__.__name__} with hostid {obj_id} not found in Zabbix.')
+        if object_id:
+            exists = self.api_object().get(hostids=[object_id], output=['hostid'])
+            if not exists:
+                logger.warning(
+                    'HostSync: Zabbix hostid %s not found for assignment pk=%s, recreating host',
+                    object_id,
+                    getattr(self.obj, 'pk', None),
+                )
+                self.obj.hostid = None
+                self.obj.save(update_fields=['hostid'])
+                self.create_in_zabbix()
+                return
 
-            object_id = found_by_id[0][self.get_id_key()]
-            self.set_id(object_id)
-            self.obj.save()
-            self.sync_to_zabbix(object_id)
+            self.sync_to_zabbix(object_id=object_id)
             logger.debug(f'Found and synced {self.__class__.__name__} ID: {object_id}')
             return
 
+        self.create_in_zabbix()
+
+    def _create_host(self) -> str:
         try:
             object_id = self.try_create()
             if not object_id:
@@ -102,6 +117,20 @@ class HostSync(ZabbixSyncBase):
         self.set_id(object_id)
         self.obj.save()
         self.obj.update_sync_info(success=True)
+        return object_id
+
+    def sync_to_zabbix(self, object_id: str | None) -> None:
+        if object_id:
+            params = self.get_update_params()
+            params['hostid'] = object_id
+            result = self.api_object().update(**params)
+            updated_id = result.get(self.result_key(), [object_id])[0]
+            self.set_id(updated_id)
+            self.obj.save()
+            self.obj.update_sync_info(success=True)
+            return
+
+        self._create_host()
 
     def sync_from_zabbix(self, data: dict) -> None:
         return {}
@@ -127,7 +156,7 @@ class HostSync(ZabbixSyncBase):
 
     def get_defined_macros(self) -> list:
         result = []
-        for macro in self.context.get('all_objects').get('macros'):
+        for macro in self.all_objects.get('macros', []):
             result.append(
                 {
                     'macro': str(macro),
@@ -158,7 +187,7 @@ class HostSync(ZabbixSyncBase):
 
     def get_snmp_macros(self) -> list:
         result = []
-        hostinterfaces = self.context.get('all_objects', {}).get('hostinterfaces', [])
+        hostinterfaces = self.all_objects.get('hostinterfaces', [])
         snmpconf = self.pluginsettings.snmpconfig
 
         for hostinterface in hostinterfaces:
@@ -225,7 +254,7 @@ class HostSync(ZabbixSyncBase):
 
     def get_hostinterface_attributes(self) -> dict:
         result = {}
-        for hostinterface in self.context.get('all_objects', {}).get('hostinterfaces', []):
+        for hostinterface in self.all_objects.get('hostinterfaces', []):
             if hostinterface.type == ZabbixHostInterfaceTypeChoices.AGENT:
                 result['tls_connect'] = hostinterface.tls_connect
                 result['tls_accept'] = 0
@@ -245,7 +274,7 @@ class HostSync(ZabbixSyncBase):
         return result
 
     def get_hostinterface_types(self) -> list:
-        hostinterfaces = self.context.get('all_objects', {}).get('hostinterfaces', [])
+        hostinterfaces = self.all_objects.get('hostinterfaces', [])
         return list({interface.type for interface in hostinterfaces})
 
     def get_templates_clear_attributes(self) -> dict:
@@ -288,7 +317,7 @@ class HostSync(ZabbixSyncBase):
         result = []
         hostinterface_types = set(self.get_hostinterface_types() or [])
 
-        for assigned_template in self.context.get('all_objects', {}).get('templates', []):
+        for assigned_template in self.all_objects.get('templates', []):
             required = set(assigned_template.zabbixtemplate.interface_requirements or [])
 
             # Extract special modifiers
@@ -320,7 +349,7 @@ class HostSync(ZabbixSyncBase):
         zabbix_status = status_mapping.get(status)
 
         result = []
-        for assigned_tag in self.context.get('all_objects').get('tags'):
+        for assigned_tag in self.all_objects.get('tags', []):
             value, _status = assigned_tag.render()
             result.append({'tag': assigned_tag.zabbixtag.tag, 'value': value})
 
@@ -331,7 +360,7 @@ class HostSync(ZabbixSyncBase):
 
     def get_groups(self) -> list:
         groups = []
-        for group in self.obj.assigned_objects.get('hostgroups', []):
+        for group in self.all_objects.get('hostgroups', []):
             # 1) If we already know the Zabbix groupid, use it (fast path).
             gid = getattr(getattr(group, 'zabbixhostgroup', None), 'groupid', None)
             if gid:
@@ -346,7 +375,7 @@ class HostSync(ZabbixSyncBase):
                 _status = False
 
             if _status and name:
-                zbx_result = self.api.hostgroup.get(search={'name': name}) or []
+                zbx_result = self.api.hostgroup.get(filter={'name': name}) or []
                 if len(zbx_result) == 1 and 'groupid' in zbx_result[0]:
                     groups.append({'groupid': zbx_result[0]['groupid']})
                 elif zbx_result:
@@ -359,7 +388,7 @@ class HostSync(ZabbixSyncBase):
         return groups
 
     def get_hostinventory(self) -> dict:
-        hostinventory = self.context.get('all_objects', {}).get('hostinventory', None)
+        hostinventory = self.all_objects.get('hostinventory', None)
         inventory = {}
         inventory_mode = 0
 
@@ -426,6 +455,9 @@ class HostSync(ZabbixSyncBase):
         # Prevent resolving hosts by name to avoid cross-renames between similar objects.
         return []
 
+    def get_natural_key_filter(self, create_params: dict) -> dict:
+        return {'host': create_params.get('host')}
+
     def delete(self) -> None:
         if not self.obj.hostid:
             try:
@@ -490,7 +522,7 @@ class HostSync(ZabbixSyncBase):
             return {}
 
         # Extract the currently expected interfaces
-        expected_hostinterfaces = self.context.get('all_objects', {}).get('hostinterfaces', [])
+        expected_hostinterfaces = self.all_objects.get('hostinterfaces', [])
         expected_ids = {int(expected_hostinterface.interfaceid) for expected_hostinterface in expected_hostinterfaces}
 
         # Get currently assigned hostinterface from Zabbix

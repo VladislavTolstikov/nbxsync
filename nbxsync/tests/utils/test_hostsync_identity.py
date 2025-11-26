@@ -40,9 +40,6 @@ class HostSyncIdentityTestCase(TestCase):
             "hostinventory": None,
         }
 
-        self.assignment_a.assigned_objects = self.all_objects
-        self.assignment_b.assigned_objects = self.all_objects
-
     def _make_api(self):
         api = MagicMock()
         api.host.create.return_value = {"hostids": ["20001"]}
@@ -89,3 +86,16 @@ class HostSyncIdentityTestCase(TestCase):
         self.assertEqual(create_kwargs["host"], "SW. Core 10")
         self.assertEqual(create_kwargs["name"], "SW. Core 10")
         api.host.get.assert_not_called()
+
+    def test_sync_recreates_missing_hostid(self):
+        api = self._make_api()
+        api.host.get.return_value = []
+        api.host.create.return_value = {"hostids": ["30001"]}
+
+        with self.assertLogs("nbxsync.utils.sync.hostsync", level="WARNING") as log:
+            HostSync(api, self.assignment_a, all_objects=self.all_objects).sync()
+
+        self.assignment_a.refresh_from_db()
+        self.assertEqual(self.assignment_a.hostid, "30001")
+        api.host.update.assert_not_called()
+        self.assertTrue(any("recreating host" in entry for entry in log.output))
