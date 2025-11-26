@@ -42,9 +42,12 @@ class HostSync(ZabbixSyncBase):
 
         self.verify_maintenancewindow()
 
+        nb_name = str(self.obj.assigned_object)
+        host_value = self.sanitize_string(input_str=nb_name)[:64]
+
         return {
-            'host': self.sanitize_string(input_str=self.obj.assigned_object.name),
-            'name': self.obj.assigned_object.name,
+            'host': host_value,
+            'name': nb_name,
             'groups': self.get_groups(),
             'status': host_status,
             **self.get_proxy_or_proxygroup(),
@@ -79,21 +82,29 @@ class HostSync(ZabbixSyncBase):
     def result_key(self) -> str:
         return 'hostids'
 
-    def sync(self) -> None:
-        obj_id = self.get_id()
+    def sync(self, obj_id=None) -> None:
+        object_id = obj_id if obj_id is not None else self.obj.hostid
 
-        if obj_id:
-            found_by_id = self.find_by_id()
-            if len(found_by_id) != 1:
-                raise RuntimeError(f'{self.__class__.__name__} with hostid {obj_id} not found in Zabbix.')
+        if object_id:
+            exists = self.api_object().get(hostids=[object_id], output=['hostid'])
+            if not exists:
+                logger.warning(
+                    'HostSync: Zabbix hostid %s not found for assignment pk=%s, recreating host',
+                    object_id,
+                    getattr(self.obj, 'pk', None),
+                )
+                self.obj.hostid = None
+                self.obj.save(update_fields=['hostid'])
+                self.sync_to_zabbix(object_id=None)
+                return
 
-            object_id = found_by_id[0][self.get_id_key()]
-            self.set_id(object_id)
-            self.obj.save()
-            self.sync_to_zabbix(object_id)
+            self.sync_to_zabbix(object_id=object_id)
             logger.debug(f'Found and synced {self.__class__.__name__} ID: {object_id}')
             return
 
+        self.sync_to_zabbix(object_id=None)
+
+    def _create_host(self) -> str:
         try:
             object_id = self.try_create()
             if not object_id:
@@ -106,6 +117,20 @@ class HostSync(ZabbixSyncBase):
         self.set_id(object_id)
         self.obj.save()
         self.obj.update_sync_info(success=True)
+        return object_id
+
+    def sync_to_zabbix(self, object_id: str | None) -> None:
+        if object_id:
+            params = self.get_update_params()
+            params['hostid'] = object_id
+            result = self.api_object().update(**params)
+            updated_id = result.get(self.result_key(), [object_id])[0]
+            self.set_id(updated_id)
+            self.obj.save()
+            self.obj.update_sync_info(success=True)
+            return
+
+        self._create_host()
 
     def sync_from_zabbix(self, data: dict) -> None:
         return {}
