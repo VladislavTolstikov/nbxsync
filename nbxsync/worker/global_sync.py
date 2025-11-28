@@ -21,6 +21,14 @@ from nbxsync.models import (
 
 logger = logging.getLogger(__name__)
 
+
+def _get_server(server_id: int):
+    try:
+        return ZabbixServer.objects.get(pk=server_id)
+    except ZabbixServer.DoesNotExist:
+        logger.warning("Server %s does not exist", server_id)
+        return None
+
 # Хосты, которые считаем "живыми" для синка
 ACTIVE_DEVICE_STATUSES = ("active", "staged")
 
@@ -41,93 +49,53 @@ def _eligible_devices_for_server(zabbixserver: ZabbixServer) -> QuerySet[Device]
     return qs
 
 
-def sync_templates_from_zabbix(zabbixserver: ZabbixServer) -> None:
-    """
-    Глобальный шаг 1: синк шаблонов для сервера.
-    Просто обёртка над штатным SyncTemplatesJob.
-    """
-    worker = SyncTemplatesJob(instance=zabbixserver)
+def sync_templates_from_zabbix(server_id: int) -> None:
+    server = _get_server(server_id)
+    if not server:
+        return
+    worker = SyncTemplatesJob(instance=server)
     worker.run()
 
 
-def ensure_hostgroup_assignments(zabbixserver: ZabbixServer) -> None:
-    """
-    Глобальный шаг 2: подготовка/создание хостгрупп и назначений.
-    Пока заглушка — позже сюда завезём логику TYPE/LOCATION и MFR/MODEL.
-    """
-    logger.info("ensure_hostgroup_assignments(%s) called", zabbixserver.pk)
-    # Здесь позже:
-    #  - создание ZabbixHostgroup-объектов в NetBox (TYPE/LOC + MFR/MODEL)
-    #  - синк этих групп в сам Zabbix
-    #  - (опционально) массовое создание ZabbixHostgroupAssignment для устройств
-    return
 
-
-def sync_hostgroups_to_zabbix(zabbixserver: ZabbixServer) -> None:
-    """
-    Глобальный шаг 2b: синк объектов ZabbixHostgroup в сам Zabbix.
-    Пока заглушка, чтобы удовлетворить импорт в nbxsync.worker.__init__.
-    """
-    logger.info("sync_hostgroups_to_zabbix(%s) called", zabbixserver.pk)
-    return
-
-
-def sync_proxy_groups(zabbixserver: ZabbixServer) -> None:
-    """
-    Глобальный шаг 3: синк групп прокси (ProxyGroup).
-    Пока заглушка.
-    """
-    logger.info("sync_proxy_groups(%s) called", zabbixserver.pk)
-    return
-
-
-def sync_proxies(zabbixserver: ZabbixServer) -> None:
-    """
-    Глобальный шаг 4: синк прокси (Proxy).
-    Пока заглушка.
-    """
-    logger.info("sync_proxies(%s) called", zabbixserver.pk)
-    return
-
-
-def synchost_assignment(assignment: ZabbixServerAssignment) -> None:
-    """
-    Шаг 5: синк конкретного assignment'а (host) в Zabbix.
-    Вызывается из RQ-джобы с instance=ZabbixServerAssignment.
-    """
-    obj = assignment.assigned_object
-    if obj is None:
-        logger.warning("synchost_assignment(%s): no assigned_object", assignment.pk)
+def ensure_hostgroup_assignments(server_id: int) -> None:
+    server = _get_server(server_id)
+    if not server:
         return
+    logger.info("ensure_hostgroup_assignments(%s)", server_id)
 
-    # Device: нужен статус и primary IP
-    if isinstance(obj, Device):
-        if obj.status.slug not in ACTIVE_DEVICE_STATUSES:
-            logger.info(
-                "synchost_assignment(%s): device %s status=%s -> skip",
-                assignment.pk,
-                obj.pk,
-                obj.status.slug,
-            )
-            return
-        if not (obj.primary_ip or obj.primary_ip4 or obj.primary_ip6):
-            logger.info(
-                "synchost_assignment(%s): device %s has no primary IP -> skip",
-                assignment.pk,
-                obj.pk,
-            )
-            return
 
-    # VM: пока только по статусу
-    if isinstance(obj, VirtualMachine):
-        if obj.status.slug not in ACTIVE_DEVICE_STATUSES:
-            logger.info(
-                "synchost_assignment(%s): VM %s status=%s -> skip",
-                assignment.pk,
-                obj.pk,
-                obj.status.slug,
-            )
-            return
 
+def sync_hostgroups_to_zabbix(server_id: int) -> None:
+    server = _get_server(server_id)
+    if not server:
+        return
+    logger.info("sync_hostgroups_to_zabbix(%s)", server_id)
+
+
+
+def sync_proxy_groups(server_id: int) -> None:
+    server = _get_server(server_id)
+    if not server:
+        return
+    logger.info("sync_proxy_groups(%s)", server_id)
+
+
+def sync_proxies(server_id: int) -> None:
+    server = _get_server(server_id)
+    if not server:
+        return
+    logger.info("sync_proxies(%s)", server_id)
+
+
+def synchost_assignment(assignment_id: int) -> None:
+    try:
+        assignment = ZabbixServerAssignment.objects.get(pk=assignment_id)
+    except ZabbixServerAssignment.DoesNotExist:
+        logger.warning("assignment %s missing", assignment_id)
+        return
+    obj = assignment.assigned_object
+    if not obj:
+        return
     worker = SyncHostJob(instance=obj)
     worker.run()
