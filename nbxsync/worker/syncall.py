@@ -15,9 +15,6 @@ logger = logging.getLogger(__name__)
 
 StageData = List[Tuple[ZabbixServerAssignment, dict]]
 
-StageData = List[Tuple[ZabbixServerAssignment, dict]]
-
-
 class _ProgressTracker:
     def __init__(self, job, total: int) -> None:
         self.job = job
@@ -171,8 +168,6 @@ def _log_assignment_counts(assignments: StageData) -> None:
 
 def syncall(zabbixserver):
     job = get_current_job()
-    assignments = _collect_assignment_data(zabbixserver)
-
     assignments = _collect_assignment_data(zabbixserver)
     proxy_groups = list(ZabbixProxyGroup.objects.filter(zabbixserver=zabbixserver))
     proxies = list(ZabbixProxy.objects.filter(zabbixserver=zabbixserver))
