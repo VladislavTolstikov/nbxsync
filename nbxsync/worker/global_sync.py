@@ -4,7 +4,6 @@ from django.db import IntegrityError, transaction
 from django.contrib.contenttypes.models import ContentType
 
 from dcim.models import Device, Site
-from extras.models import Status
 
 from nbxsync.jobs import SyncTemplatesJob
 from nbxsync.models import (
@@ -101,7 +100,7 @@ def ensure_hostgroup_assignments(zabbixserver_id: int) -> None:
 
     status_qs = Status.objects.filter(slug__in=["active", "staged"])
     devices = (
-        Device.objects.filter(status__in=status_qs)
+        Device.objects.filter(status__in=["active", "staged"])
         .exclude(primary_ip4__isnull=True, primary_ip__isnull=True)
         .select_related(
             "role",
