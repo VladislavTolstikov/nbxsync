@@ -6,7 +6,12 @@ from django.db.models import QuerySet
 from dcim.models import Device
 from virtualization.models import VirtualMachine
 
-from nbxsync.jobs import SyncTemplatesJob, SyncHostJob
+from nbxsync.jobs import (
+    SyncTemplatesJob,
+    SyncHostJob,
+    SyncProxyGroupJob,
+    SyncProxyJob,
+)
 from nbxsync.models import (
     ZabbixServer,
     ZabbixServerAssignment,
@@ -58,9 +63,36 @@ def ensure_hostgroup_assignments(zabbixserver: ZabbixServer) -> None:
     return
 
 
+def sync_hostgroups_to_zabbix(zabbixserver: ZabbixServer) -> None:
+    """
+    Глобальный шаг 2b: синк объектов ZabbixHostgroup в сам Zabbix.
+    Пока заглушка, чтобы удовлетворить импорт в nbxsync.worker.__init__.
+    """
+    logger.info("sync_hostgroups_to_zabbix(%s) called", zabbixserver.pk)
+    return
+
+
+def sync_proxy_groups(zabbixserver: ZabbixServer) -> None:
+    """
+    Глобальный шаг 3: синк групп прокси (ProxyGroup).
+    Пока заглушка.
+    """
+    logger.info("sync_proxy_groups(%s) called", zabbixserver.pk)
+    return
+
+
+def sync_proxies(zabbixserver: ZabbixServer) -> None:
+    """
+    Глобальный шаг 4: синк прокси (Proxy).
+    Пока заглушка.
+    """
+    logger.info("sync_proxies(%s) called", zabbixserver.pk)
+    return
+
+
 def synchost_assignment(assignment: ZabbixServerAssignment) -> None:
     """
-    Шаг 3: синк конкретного assignment'а (host) в Zabbix.
+    Шаг 5: синк конкретного assignment'а (host) в Zabbix.
     Вызывается из RQ-джобы с instance=ZabbixServerAssignment.
     """
     obj = assignment.assigned_object
