@@ -6,14 +6,10 @@ from django.contrib.contenttypes.models import ContentType
 from dcim.models import Device, Site
 
 from nbxsync.jobs import SyncTemplatesJob
-from nbxsync.models import (
-    ZabbixServer,
-    ZabbixServerAssignment,
-    ZabbixHostGroup,
-    ZabbixHostGroupAssignment,
-    ZabbixProxyGroup,
-    ZabbixProxy,
-)
+from nbxsync.models.zabbixhostgroup import ZabbixHostGroup
+from nbxsync.models.zabbixhostgroupassignment import ZabbixHostGroupAssignment
+from nbxsync.models.zabbixserver import ZabbixServer
+
 from nbxsync.utils import get_assigned_zabbixobjects
 from nbxsync.utils.sync import (
     HostSync,
