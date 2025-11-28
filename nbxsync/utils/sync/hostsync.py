@@ -359,33 +359,23 @@ class HostSync(ZabbixSyncBase):
         return {'tags': result}
 
     def get_groups(self) -> list:
+        """
+        Возвращает список групп для host.create/update.
+
+        Принцип:
+          - используем только связанные ZabbixHostGroup (zabbixhostgroup.groupid);
+          - никаких поисков групп в Zabbix по имени.
+        """
         groups = []
         for group in self.all_objects.get('hostgroups', []):
-            # 1) If we already know the Zabbix groupid, use it (fast path).
-            gid = getattr(getattr(group, 'zabbixhostgroup', None), 'groupid', None)
+            zbxhg = getattr(group, 'zabbixhostgroup', None)
+            gid = getattr(zbxhg, 'groupid', None)
             if gid:
                 groups.append({'groupid': gid})
-                continue
-
-            # 2) Otherwise, try to resolve by name (e.g., for template-like objects).
-            name, _status = ('', False)
-            try:
-                name, _status = group.render()
-            except Exception:
-                _status = False
-
-            if _status and name:
-                zbx_result = self.api.hostgroup.get(search={'name': name}) or []
-                if len(zbx_result) == 1 and 'groupid' in zbx_result[0]:
-                    groups.append({'groupid': zbx_result[0]['groupid']})
-                elif zbx_result:
-                    # If multiple, prefer exact-name match if available
-                    match = next((g for g in zbx_result if g.get('name') == name and 'groupid' in g), None)
-                    if match:
-                        groups.append({'groupid': match['groupid']})
-            # If no gid and no resolvable name, skip silently
 
         return groups
+
+
 
     def get_hostinventory(self) -> dict:
         hostinventory = self.all_objects.get('hostinventory', None)

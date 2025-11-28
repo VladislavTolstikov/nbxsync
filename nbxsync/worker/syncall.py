@@ -1,201 +1,129 @@
 import logging
-from collections import defaultdict
-from typing import Iterable, List, Tuple
+from typing import Iterable
 
 from rq import get_current_job
-from zabbix_utils.exceptions import APIRequestError
+from django_rq import get_queue
 
-from nbxsync.jobs.synctemplates import SyncTemplatesJob
-from nbxsync.models import ZabbixHostInterface, ZabbixProxy, ZabbixProxyGroup, ZabbixServerAssignment
-from nbxsync.utils import get_assigned_zabbixobjects
-from nbxsync.utils.sync import HostGroupSync, HostInterfaceSync, HostSync, ProxyGroupSync, ProxySync
-from nbxsync.utils.sync.safe_sync import safe_sync
+from nbxsync.models import ZabbixServerAssignment
 
 logger = logging.getLogger(__name__)
 
-StageData = List[Tuple[ZabbixServerAssignment, dict]]
-
-class _ProgressTracker:
-    def __init__(self, job, total: int) -> None:
-        self.job = job
-        self.total = total
-        self.completed = 0
-
-    def increment(self) -> None:
-        if self.total <= 0:
-            return
-
-        self.completed += 1
-        if self.job:
-            self.job.meta["progress"] = min(100, int((self.completed / self.total) * 100))
-            self.job.save_meta()
+LOW_QUEUE_NAME = "low"
 
 
-def _log_stage(stage: str, count: int, action: str) -> None:
-    logger.info("Sync All stage '%s' %s (%s objects)", stage, action, count)
-
-
-def _bulk_safe_sync(
-    sync_class,
-    objects: Iterable,
-    *,
-    stage: str,
-    progress: _ProgressTracker | None,
-    extra_args=None,
-) -> None:
-    items = list(objects)
-    _log_stage(stage, len(items), "starting")
-    for obj in items:
-        try:
-            kwargs = extra_args(obj) if callable(extra_args) else (extra_args or {})
-            safe_sync(sync_class, obj, extra_args=kwargs)
-        except Exception as exc:
-            logger.exception(
-                "Failed to sync %s (model=%s pk=%s): %s",
-                sync_class.__name__,
-                obj.__class__.__name__ if obj is not None else "None",
-                getattr(obj, "pk", None),
-                exc,
-            )
-        else:
-            if progress:
-                progress.increment()
-    _log_stage(stage, len(items), "completed")
-
-
-def _collect_host_groups(assignments: StageData) -> list:
-    unique_ids = set()
-    hostgroups = []
-    for _, all_objects in assignments:
-        for hostgroup in all_objects.get("hostgroups", []):
-            key = getattr(hostgroup, "pk", None)
-            if key in unique_ids:
-                continue
-            unique_ids.add(key)
-            hostgroups.append(hostgroup)
-
-    return hostgroups
-
-
-def _collect_host_interfaces(assignments: StageData) -> List[Tuple[ZabbixHostInterface, int]]:
-    interfaces: List[Tuple[ZabbixHostInterface, int]] = []
-    for assignment, all_objects in assignments:
-        hostid = assignment.hostid
-        for hostinterface in all_objects.get("hostinterfaces", []):
-            interfaces.append((hostinterface, hostid))
-
-    return interfaces
-
-
-def _sync_host_groups(hostgroups: Iterable, *, progress: _ProgressTracker | None) -> None:
-    _bulk_safe_sync(HostGroupSync, hostgroups, stage="Host groups", progress=progress)
-
-
-def _sync_host_interfaces(
-    interfaces: List[Tuple[ZabbixHostInterface, int]], *, progress: _ProgressTracker | None
-) -> None:
-    _log_stage("Host interfaces", len(interfaces), "starting")
-    for hostinterface, hostid in interfaces:
-        try:
-            safe_sync(HostInterfaceSync, hostinterface, extra_args={"hostid": hostid})
-        except Exception as exc:
-            logger.exception(
-                "Failed to sync HostInterface (model=%s pk=%s): %s",
-                hostinterface.__class__.__name__,
-                getattr(hostinterface, "pk", None),
-                exc,
-            )
-        else:
-            if progress:
-                progress.increment()
-    _log_stage("Host interfaces", len(interfaces), "completed")
-
-
-def _sync_hosts(assignments: StageData, *, include_templates: bool, progress: _ProgressTracker | None) -> None:
-    stage = "Servers" if not include_templates else "Templates"
-    _log_stage(stage, len(assignments), "starting")
-    for assignment, all_objects in assignments:
-        try:
-            safe_sync(
-                HostSync,
-                assignment,
-                extra_args={"all_objects": all_objects, "skip_templates": not include_templates},
-            )
-        except APIRequestError as exc:
-            logger.exception(
-                "Zabbix API error while syncing host (model=%s pk=%s): %s",
-                assignment.__class__.__name__,
-                getattr(assignment, "pk", None),
-                exc,
-            )
-        except Exception as exc:
-            logger.exception(
-                "Failed to sync host (model=%s pk=%s): %s",
-                assignment.__class__.__name__,
-                getattr(assignment, "pk", None),
-                exc,
-            )
-        else:
-            if progress:
-                progress.increment()
-    _log_stage(stage, len(assignments), "completed")
-
-
-def _collect_assignment_data(zabbixserver) -> StageData:
-    data: StageData = []
-    assignments = ZabbixServerAssignment.objects.filter(zabbixserver=zabbixserver)
-    for assignment in assignments:
-        # assigned_object — это GFK, брать его как раньше
-        data.append((assignment, get_assigned_zabbixobjects(assignment.assigned_object)))
-    return data
-
-
-
-def _log_assignment_counts(assignments: StageData) -> None:
-    counters = defaultdict(int)
-    for _, all_objects in assignments:
-        counters["macros"] += len(all_objects.get("macros", []))
-        counters["tags"] += len(all_objects.get("tags", []))
-        counters["inventory"] += 1 if all_objects.get("hostinventory") else 0
-
-    for name, count in (
-        ("Macros", counters["macros"]),
-        ("Tags", counters["tags"]),
-        ("Inventory", counters["inventory"]),
-    ):
-        _log_stage(name, count, "completed")
-
-
-def syncall(zabbixserver):
-    job = get_current_job()
-    assignments = _collect_assignment_data(zabbixserver)
-    proxy_groups = list(ZabbixProxyGroup.objects.filter(zabbixserver=zabbixserver))
-    proxies = list(ZabbixProxy.objects.filter(zabbixserver=zabbixserver))
-    hostgroups = _collect_host_groups(assignments)
-    hostinterfaces = _collect_host_interfaces(assignments)
-
-    total_objects = (
-        len(assignments) * 2
-        + len(proxy_groups)
-        + len(proxies)
-        + len(hostgroups)
-        + len(hostinterfaces)
+def _iter_filtered_assignments(zabbixserver) -> Iterable[ZabbixServerAssignment]:
+    """
+    Берём assignment'ы:
+      - привязаны к этому zabbixserver;
+      - assigned_object.status in {active, staged};
+      - есть primary_ip или primary_ip4.
+    """
+    qs = ZabbixServerAssignment.objects.filter(zabbixserver=zabbixserver).select_related(
+        "assigned_object_type"
     )
-    progress = _ProgressTracker(job, total_objects)
+    for a in qs.iterator():
+        obj = a.assigned_object
+        if obj is None:
+            continue
 
-    _sync_hosts(assignments, include_templates=False, progress=progress)
-    _bulk_safe_sync(ProxyGroupSync, proxy_groups, stage="Proxy groups", progress=progress)
-    _bulk_safe_sync(ProxySync, proxies, stage="Proxies", progress=progress)
-    _sync_host_groups(hostgroups, progress=progress)
-    _sync_host_interfaces(hostinterfaces, progress=progress)
-    _sync_hosts(assignments, include_templates=True, progress=progress)
-    _log_assignment_counts(assignments)
+        status = getattr(obj, "status", None)
+        status_slug = getattr(status, "slug", None) or str(status).lower()
+        if status_slug not in {"active", "staged"}:
+            continue
 
-    try:
-        SyncTemplatesJob(instance=zabbixserver).run()
-    except Exception:
-        logger.exception("Failed to sync templates for %s", zabbixserver)
+        has_ip4 = getattr(obj, "primary_ip4", None) is not None
+        has_ip = getattr(obj, "primary_ip", None) is not None
+        if not (has_ip or has_ip4):
+            continue
 
-    if job and progress.total == progress.completed:
+        yield a
+
+
+def syncall(zabbixserver) -> None:
+    """
+    Новый Sync All:
+
+      J1: sync_templates_from_zabbix
+      J2: ensure_hostgroup_assignments
+      J3: sync_hostgroups_to_zabbix
+      J4: sync_proxy_groups
+      J5: sync_proxies
+
+      Потом пачка per-host джоб:
+      synchost_assignment(assignment_id), depends_on=J5.
+    """
+    job = get_current_job()
+    queue = get_queue(LOW_QUEUE_NAME)
+    server_id = zabbixserver.pk
+
+    logger.info("SyncAll dispatcher started for ZabbixServer id=%s", server_id)
+
+    # --- глобальные джобы по цепочке ----------------------------------------
+    j1 = queue.enqueue(
+        "nbxsync.worker.sync_templates_from_zabbix",
+        args=(server_id,),
+        timeout=9000,
+        description=f"Sync templates from Zabbix (server={server_id})",
+    )
+
+    j2 = queue.enqueue(
+        "nbxsync.worker.ensure_hostgroup_assignments",
+        args=(server_id,),
+        timeout=9000,
+        depends_on=j1,
+        description=f"Ensure hostgroup assignments (server={server_id})",
+    )
+
+    j3 = queue.enqueue(
+        "nbxsync.worker.sync_hostgroups_to_zabbix",
+        args=(server_id,),
+        timeout=9000,
+        depends_on=j2,
+        description=f"Sync hostgroups to Zabbix (server={server_id})",
+    )
+
+    j4 = queue.enqueue(
+        "nbxsync.worker.sync_proxy_groups",
+        args=(server_id,),
+        timeout=9000,
+        depends_on=j3,
+        description=f"Sync proxy groups (server={server_id})",
+    )
+
+    j5 = queue.enqueue(
+        "nbxsync.worker.sync_proxies",
+        args=(server_id,),
+        timeout=9000,
+        depends_on=j4,
+        description=f"Sync proxies (server={server_id})",
+    )
+
+    # --- per-host джобы ------------------------------------------------------
+    assignments = list(_iter_filtered_assignments(zabbixserver))
+    logger.info(
+        "SyncAll dispatcher: %s assignments selected for per-host sync (server=%s)",
+        len(assignments),
+        server_id,
+    )
+
+    for a in assignments:
+        job_id = f"synchost:{server_id}:{a.pk}"
+        queue.enqueue(
+            "nbxsync.worker.synchost_assignment",
+            args=(a.pk,),
+            timeout=9000,
+            job_id=job_id,
+            depends_on=j5,
+            description=f"Sync host assignment {a.pk} (server={server_id})",
+        )
+
+    if job:
         job.meta["progress"] = 100
         job.save_meta()
+
+    logger.info(
+        "SyncAll dispatcher finished for ZabbixServer id=%s: "
+        "globals queued, %s per-host jobs enqueued",
+        server_id,
+        len(assignments),
+    )
