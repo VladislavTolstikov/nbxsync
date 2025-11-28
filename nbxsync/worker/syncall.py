@@ -107,7 +107,7 @@ def syncall(zabbixserver) -> None:
     )
 
     for a in assignments:
-        job_id = f"synchost:{server_id}:{a.pk}"
+        job_id = f"synchost_{server_id}_{a.pk}"
         queue.enqueue(
             "nbxsync.worker.synchost_assignment",
             args=(a.pk,),
