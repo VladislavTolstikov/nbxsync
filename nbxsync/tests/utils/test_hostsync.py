@@ -94,7 +94,6 @@ class HostSyncTestCase(TestCase):
                 self.zabbixproxy = proxy
                 self.zabbixproxygroup = proxy_group
                 self.zabbixserver = server
-                self.assigned_objects = {'hostgroups': []}
 
             def save(self):
                 pass
@@ -159,21 +158,21 @@ class HostSyncTestCase(TestCase):
 
         dummy_api = DummyAPI()
 
+        self.all_objects = {
+            'hostinterfaces': [self.interface_agent, self.interface_snmp, self.interface_ipmi],
+            'macros': [],
+            'templates': [],
+            'tags': [],
+            'hostinventory': None,
+            'hostgroups': [],
+        }
+
         self.sync = HostSync(
             api=dummy_api,
             netbox_obj=self.obj,
             obj=self.obj,
+            all_objects=self.all_objects,
         )
-        # Assign context separately so it's not lost
-        self.sync.context = {
-            'all_objects': {
-                'hostinterfaces': [self.interface_agent, self.interface_snmp, self.interface_ipmi],
-                'macros': [],
-                'templates': [],
-                'tags': [],
-                'hostinventory': None,
-            }
-        }
 
         class PluginSettings:
             class StatusMapping:
@@ -236,7 +235,7 @@ class HostSyncTestCase(TestCase):
             interfaceid=10004,
         )
 
-        self.sync.context['all_objects']['hostinterfaces'] = [
+        self.sync.all_objects['hostinterfaces'] = [
             self.interface_agent,
             self.interface_snmpv3,
             self.interface_ipmi,
@@ -301,7 +300,7 @@ class HostSyncTestCase(TestCase):
 
         macro_obj = DummyMacro()
 
-        self.sync.context['all_objects']['macros'] = [macro_obj]
+        self.sync.all_objects['macros'] = [macro_obj]
 
         result = self.sync.get_defined_macros()
 
@@ -327,7 +326,7 @@ class HostSyncTestCase(TestCase):
 
         # One macro from NetBox context
         netbox_macro = DummyMacro()
-        self.sync.context['all_objects']['macros'] = [netbox_macro]
+        self.sync.all_objects['macros'] = [netbox_macro]
 
         # Patch API response to simulate a Zabbix-only macro
         self.sync.api.host.get = lambda **kwargs: [
@@ -400,7 +399,7 @@ class HostSyncTestCase(TestCase):
             def __init__(self):
                 self.zabbixtemplate = DummyZabbixTemplate()
 
-        self.sync.context['all_objects']['templates'] = [DummyAssignedTemplate()]
+        self.sync.all_objects['templates'] = [DummyAssignedTemplate()]
 
         result = self.sync.get_template_attributes()
         self.assertIn({'templateid': 101}, result['templates'])
@@ -415,8 +414,8 @@ class HostSyncTestCase(TestCase):
             def __init__(self):
                 self.zabbixtemplate = DummyZabbixTemplate()
 
-        self.sync.context['all_objects']['templates'] = [DummyAssignedTemplate()]
-        self.sync.context['all_objects']['hostinterfaces'] = []  # No interfaces
+        self.sync.all_objects['templates'] = [DummyAssignedTemplate()]
+        self.sync.all_objects['hostinterfaces'] = []  # No interfaces
 
         result = self.sync.get_template_attributes()
         self.assertNotIn({'templateid': 102}, result['templates'])
@@ -432,8 +431,8 @@ class HostSyncTestCase(TestCase):
             def __init__(self):
                 self.zabbixtemplate = DummyZabbixTemplate()
 
-        self.sync.context['all_objects']['templates'] = [DummyAssignedTemplate()]
-        self.sync.context['all_objects']['hostinterfaces'] = [self.interface_snmp]
+        self.sync.all_objects['templates'] = [DummyAssignedTemplate()]
+        self.sync.all_objects['hostinterfaces'] = [self.interface_snmp]
 
         result = self.sync.get_template_attributes()
         self.assertIn({'templateid': 103}, result['templates'])
@@ -448,8 +447,8 @@ class HostSyncTestCase(TestCase):
             def __init__(self):
                 self.zabbixtemplate = DummyZabbixTemplate()
 
-        self.sync.context['all_objects']['templates'] = [DummyAssignedTemplate()]
-        self.sync.context['all_objects']['hostinterfaces'] = [self.interface_snmp]  # No AGENT interface
+        self.sync.all_objects['templates'] = [DummyAssignedTemplate()]
+        self.sync.all_objects['hostinterfaces'] = [self.interface_snmp]  # No AGENT interface
 
         result = self.sync.get_template_attributes()
         self.assertNotIn({'templateid': 104}, result['templates'])
@@ -470,7 +469,7 @@ class HostSyncTestCase(TestCase):
 
         dummy_tag = DummyAssignedTag()
 
-        self.sync.context['all_objects']['tags'] = [dummy_tag]
+        self.sync.all_objects['tags'] = [dummy_tag]
 
         result = self.sync.get_tag_attributes()
         self.assertEqual(result, {'tags': [{'tag': 'env', 'value': 'production'}]})
@@ -516,7 +515,7 @@ class HostSyncTestCase(TestCase):
         self.assertIn('Host already deleted or missing host ID', messages[0][1])
 
     def test_get_hostinventory_none(self):
-        self.sync.context['all_objects']['hostinventory'] = None
+        self.sync.all_objects['hostinventory'] = None
         result = self.sync.get_hostinventory()
         self.assertEqual(result, {'inventory_mode': 0})
 
@@ -533,7 +532,7 @@ class HostSyncTestCase(TestCase):
                     'asset_tag': ('TAG-001', True),
                 }
 
-        self.sync.context['all_objects']['hostinventory'] = DummyHostInventory()
+        self.sync.all_objects['hostinventory'] = DummyHostInventory()
 
         result = self.sync.get_hostinventory()
 
@@ -567,7 +566,7 @@ class HostSyncTestCase(TestCase):
 
         # Expected interface (from NetBox)
         self.interface_agent.interfaceid = 1001
-        self.sync.context['all_objects']['hostinterfaces'] = [self.interface_agent]
+        self.sync.all_objects['hostinterfaces'] = [self.interface_agent]
 
         # Zabbix returns two interfaces, one extra
         self.sync.api.hostinterface.get = lambda **kwargs: [
