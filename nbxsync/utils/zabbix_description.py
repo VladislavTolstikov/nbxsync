@@ -9,7 +9,7 @@ from dcim.models import Device, Location
 from tenancy.models import Tenant
 
 
-CF_KEY = "zabbix_description"  # slug кастомного поля в NetBox
+CF_KEY = "Zabbix_description"  # slug кастомного поля в NetBox
 
 
 def _build_location_path(device: Device) -> str:
