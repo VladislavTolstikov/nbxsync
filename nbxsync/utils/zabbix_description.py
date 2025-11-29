@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional
-
+import os
 from django.conf import settings
 from dcim.models import Device, Location
 from tenancy.models import Tenant
@@ -72,12 +72,14 @@ def _find_responsible(device: Device) -> str:
     return tenant.name or tenant.slug or "-"
 
 
-def _device_link(device: Device) -> str:
+def _device_link(device):
     """
-    Строим абсолютную ссылку через SITE_URL + get_absolute_url().
-    В NetBox 4.x SITE_URL должен быть задан в configuration.py.
+    Строим абсолютную ссылку на девайс.
+    1) Берём SITE_URL из NetBox.
+    2) Если он пустой – пробуем NB_URL из env.
+    3) Если и там пусто – жёстко используем http://172.29.1.124.
     """
-    base = getattr(settings, "SITE_URL", "").rstrip("/")
+    base = (getattr(settings, "SITE_URL", "") or os.getenv("NB_URL") or "http://172.29.1.124").rstrip("/")
     return f"{base}{device.get_absolute_url()}"
 
 
