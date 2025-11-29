@@ -84,17 +84,41 @@ class HostSync(ZabbixSyncBase):
             self.templates = self.get_template_attributes()
             templates_clear = self.get_templates_clear_attributes()
 
-        # Start by creating the full merged dict using unpacking
+        # Базовые параметры (включая tags из NetBox)
         params = {
             **self.get_create_params(),  # base params
             **self.templates,  # add templates
             **templates_clear,  # add template clear overrides
         }
 
-        # Add hostid separately
+        # hostid обязателен для update
         params['hostid'] = self.obj.hostid
 
+        # --- MERGE ТЕГОВ: NetBox + существующие теги в Zabbix ---
+        nbx_tags = params.get('tags')
+
+        # Если по какой-то причине тегов нет, ничего не делаем
+        if nbx_tags is not None:
+            try:
+                current = self.api.host.get(
+                    output=['hostid'],
+                    hostids=self.obj.hostid,
+                    selectTags=['tag', 'value'],
+                )
+                zbx_tags = current[0].get('tags', []) if current else []
+            except Exception as e:
+                logger.warning(
+                    'HostSync: failed to fetch existing tags for hostid %s: %s',
+                    self.obj.hostid,
+                    e,
+                )
+                zbx_tags = []
+
+            params['tags'] = self.merge_zabbix_and_netbox_tags(zbx_tags, nbx_tags)
+        # --- конец MERGE блокa ---
+
         return params
+
 
     def result_key(self) -> str:
         return 'hostids'
@@ -358,6 +382,42 @@ class HostSync(ZabbixSyncBase):
             result.append({'templateid': assigned_template.zabbixtemplate.templateid})
 
         return {'templates': result}
+
+
+
+    def merge_zabbix_and_netbox_tags(self, zabbix_tags, netbox_tags):
+        """
+        Объединяет теги Zabbix и NetBox.
+
+        - Если тег с таким же именем есть в NetBox, используется NetBox-версия.
+        - Теги, которых нет в NetBox, но есть в Zabbix, сохраняются.
+        """
+        def normalize(tag):
+            # В Zabbix это обычно 'tag', но на всякий случай поддержим 'name'
+            key = tag.get('tag') or tag.get('name')
+            if not key:
+                return None
+            return {
+                'tag': key,
+                'value': tag.get('value', ''),
+            }
+
+        merged = {}
+
+        # Сначала существующие теги из Zabbix (они сохраняются, если NetBox их не перекрывает)
+        for t in zabbix_tags or []:
+            nt = normalize(t)
+            if nt:
+                merged[nt['tag']] = nt
+
+        # Затем поверх накладываем теги из NetBox — источник истины
+        for t in netbox_tags or []:
+            nt = normalize(t)
+            if nt:
+                merged[nt['tag']] = nt
+
+        return list(merged.values())
+
 
     def get_tag_attributes(self) -> dict:
         status = self.obj.assigned_object.status
