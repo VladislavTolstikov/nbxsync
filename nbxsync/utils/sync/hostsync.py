@@ -11,6 +11,7 @@ from nbxsync.choices import HostInterfaceRequirementChoices, ZabbixHostInterface
 from nbxsync.choices.syncsot import SyncSOT
 from nbxsync.choices.zabbixstatus import ZabbixHostStatus
 from nbxsync.models import ZabbixHostInterface, ZabbixMaintenance, ZabbixMaintenancePeriod, ZabbixMaintenanceObjectAssignment
+from nbxsync.utils.zabbix_description import ensure_cf_zabbix_description
 
 
 logger = logging.getLogger(__name__)
@@ -45,9 +46,24 @@ class HostSync(ZabbixSyncBase):
         nb_name = str(self.obj.assigned_object)
         host_value = self.sanitize_string(input_str=nb_name)[:64]
 
+        # --- Zabbix description из NetBox custom field ---------------------
+        zbx_description = ""
+        assigned = self.obj.assigned_object
+
+        # Пока считаем, что описание нужно только для устройств (dcim.Device)
+        if getattr(assigned, "_meta", None) and assigned._meta.model_name == "device":
+            try:
+                zbx_description = ensure_cf_zabbix_description(assigned)
+            except Exception as e:
+                logger.warning(
+                    "Failed to build/store zabbix_description for %s (id=%s): %s",
+                    assigned, getattr(assigned, "id", None), e,
+                )
+
         return {
             'host': host_value,
             'name': nb_name,
+            'description': zbx_description,
             'groups': self.get_groups(),
             'status': host_status,
             **self.get_proxy_or_proxygroup(),
@@ -56,6 +72,7 @@ class HostSync(ZabbixSyncBase):
             **self.get_macros(),
             **self.get_hostinventory(),
         }
+
 
     def get_update_params(self, **kwargs) -> dict:
         skip_templates = self.context.get('skip_templates', False)
