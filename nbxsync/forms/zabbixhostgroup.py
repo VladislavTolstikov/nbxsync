@@ -33,14 +33,21 @@ class ZabbixHostgroupForm(NetBoxModelForm):
 class ZabbixHostgroupFilterForm(NetBoxModelFilterSetForm):
     model = ZabbixHostgroup
 
-    zabbixserver = DynamicModelChoiceField(queryset=ZabbixServer.objects.all(), required=False, selector=True, label=_('Zabbix Server'))
+    zabbixserver = DynamicModelChoiceField(
+        queryset=ZabbixServer.objects.all(),
+        required=False,
+        selector=True,
+        label=_('Zabbix Server'),
+    )
 
     fieldsets = (
         FieldSet('q', 'filter_id'),
         FieldSet('name', 'description', 'value', 'groupid', 'zabbixserver', name=_('Zabbix Hostgroup')),
     )
 
-    tag = TagFilterField(model)
+    # было: tag = TagFilterField(model)
+    tag = TagFilterField(ZabbixHostgroup)
+
 
 
 class ZabbixHostgroupBulkEditForm(NetBoxModelBulkEditForm):
