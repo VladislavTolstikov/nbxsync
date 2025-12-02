@@ -10,7 +10,7 @@ from .zabbixproxy import *
 from .zabbixhostinventory import *
 from .zabbixmaintenance import *
 from .zabbixmaintenanceperiod import *
-
+from .zabbixhostgroup import *
 from .zabbixtagassignment import *
 from .zabbixmacroassignment import *
 from .zabbixtemplateassignment import *
