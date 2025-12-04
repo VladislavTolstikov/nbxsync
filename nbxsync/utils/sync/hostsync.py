@@ -20,6 +20,7 @@ from nbxsync.models import (
     ZabbixMaintenance,
     ZabbixMaintenancePeriod,
     ZabbixMaintenanceObjectAssignment,
+    ZabbixHostGroupAssignment,
 )
 from nbxsync.utils.zabbix_description import ensure_cf_zabbix_description
 
