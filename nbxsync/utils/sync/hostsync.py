@@ -185,11 +185,12 @@ class HostSync(ZabbixSyncBase):
     # -------- host.create() with ensure groups --------
     def _create_host(self) -> str:
         # ПЕРЕЗАГРУЗКА АКТУАЛЬНЫХ ГРУПП ИЗ БД
+        device = self.obj.assigned_object
         self.all_objects['hostgroups'] = list(
-            self.obj.zabbixhostgroupassignment_set.select_related('zabbixhostgroup')
+            device.zabbixhostgroupassignment_set.select_related('zabbixhostgroup')
         )
 
-        # СОЗДАНИЕ ГРУПП, ЕСЛИ НЕТ groupid
+        # СОЗДАНИЕ ГРУПП (если нет groupid)
         self._ensure_zbx_groups()
 
         object_id = self.try_create()
@@ -200,6 +201,7 @@ class HostSync(ZabbixSyncBase):
         self.obj.save()
         self.obj.update_sync_info(success=True)
         return object_id
+
 
 
     # -------- update host OR create host --------
