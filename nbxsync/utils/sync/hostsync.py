@@ -448,15 +448,25 @@ class HostSync(ZabbixSyncBase):
         return {"tags": res}
 
     def get_groups(self):
+        device = self.obj.assigned_object
+        server_id = self.obj.zabbixserver_id
+
         groups = []
-        for assignment in self.obj.device.zabbixhostgroupassignment_set.all():
+
+        qs = ZabbixHostgroupAssignment.objects.filter(
+            assigned_object_type="dcim.device",
+            assigned_object_id=device.id
+        )
+
+        for assignment in qs:
             hg = assignment.zabbixhostgroup
 
-            # ВАЖНО: фильтруем только для этого синка
-            if hg.zabbixserver_id != self.obj.zabbixserver_id:
+            # фильтруем только группы этого Zabbix-сервера
+            if hg.zabbixserver_id != server_id:
                 continue
 
-            groups.append({'groupid': hg.groupid})
+            groups.append({"groupid": hg.groupid})
+
         return groups
 
     def get_hostinventory(self):
