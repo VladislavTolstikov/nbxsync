@@ -20,7 +20,7 @@ from nbxsync.models import (
     ZabbixMaintenance,
     ZabbixMaintenancePeriod,
     ZabbixMaintenanceObjectAssignment,
-    ZabbixHostGroupAssignment,
+    ZabbixHostgroupAssignment,
 )
 from nbxsync.utils.zabbix_description import ensure_cf_zabbix_description
 
@@ -197,7 +197,7 @@ class HostSync(ZabbixSyncBase):
         ct = ContentType.objects.get_for_model(device)
 
         self.all_objects["hostgroups"] = list(
-            ZabbixHostGroupAssignment.objects.filter(
+            ZabbixHostgroupAssignment.objects.filter(
                 assigned_object_type=ct,
                 assigned_object_id=device.id,
                 zabbixhostgroup__zabbixserver=self.obj.zabbixserver,
@@ -453,7 +453,7 @@ class HostSync(ZabbixSyncBase):
 
         groups = []
 
-        qs = ZabbixHostGroupAssignment.objects.filter(
+        qs = ZabbixHostgroupAssignment.objects.filter(
             assigned_object_type="dcim.device",
             assigned_object_id=device.id
         )
