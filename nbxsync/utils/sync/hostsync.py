@@ -197,7 +197,7 @@ class HostSync(ZabbixSyncBase):
         ct = ContentType.objects.get_for_model(device)
 
         self.all_objects["hostgroups"] = list(
-            ZabbixHostGroupAssignment.objects.filter(
+            ZabbixHostgroupAssignment.objects.filter(
                 assigned_object_type=ct,
                 assigned_object_id=device.id,
                 zabbixhostgroup__zabbixserver=self.obj.zabbixserver,
