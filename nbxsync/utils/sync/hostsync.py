@@ -367,8 +367,14 @@ class HostSync(ZabbixSyncBase):
     def get_template_attributes(self):
         result = []
         types = set(self.get_hostinterface_types())
+        server_id = self.obj.zabbixserver_id
 
         for t in self.all_objects.get('templates', []):
+
+            # Фильтруем шаблоны только текущего сервера
+            if t.zabbixtemplate.zabbixserver_id != server_id:
+                continue
+
             req = set(t.zabbixtemplate.interface_requirements or [])
             has_none = HostInterfaceRequirementChoices.NONE in req
             has_any = HostInterfaceRequirementChoices.ANY in req
@@ -384,6 +390,7 @@ class HostSync(ZabbixSyncBase):
             result.append({"templateid": t.zabbixtemplate.templateid})
 
         return {"templates": result}
+
 
     def get_templates_clear_attributes(self):
         if not self.obj.hostid:
