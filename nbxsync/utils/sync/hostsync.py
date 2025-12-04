@@ -37,32 +37,39 @@ class HostSync(ZabbixSyncBase):
 
     def _ensure_zbx_groups(self):
         """
-        Если groupid отсутствует — создаём группу в Zabbix
-        и сохраняем groupid обратно в NetBox.
+        Гарантирует, что каждая ZabbixHostGroup в assignments имеет groupid в Zabbix.
+        Если groupid отсутствует — создаёт группу в Zabbix и сохраняет её.
         """
-        groups = self.all_objects.get('hostgroups', [])
 
-        for g in groups:
-            hg = getattr(g, 'zabbixhostgroup', None)
-            if not hg:
+        hostgroups = self.all_objects.get("hostgroups", [])
+        if not hostgroups:
+            return
+
+        for ass in hostgroups:
+            hg = ass.zabbixhostgroup
+
+            # Если уже есть groupid → пропускаем
+            if hg.groupid:
                 continue
 
-            if hg.groupid:
-                continue  # всё уже есть
+            # Создание группы в Zabbix
+            params = {
+                "name": hg.name,
+            }
 
-            # --- создаём группу в Zabbix ---
             try:
-                result = self.api.hostgroup.create(name=hg.value)
-                zbx_id = int(result["groupids"][0])
-
-                # --- записываем Zabbix groupid в NetBox ---
-                hg.groupid = zbx_id
-                hg.save(update_fields=["groupid"])
-                logger.info("Created Zabbix group '%s' → groupid=%s", hg.value, zbx_id)
-
+                result = self.api.hostgroup.create(**params)
+                new_id = int(result["groupids"][0])
             except Exception as e:
-                logger.error("Failed to create Zabbix hostgroup '%s': %s", hg.value, e)
-                raise
+                raise RuntimeError(f"Failed to create Zabbix hostgroup '{hg.name}': {e}")
+
+            # Сохраняем groupid в NetBox
+            hg.groupid = new_id
+            hg.save(update_fields=["groupid"])
+
+            # Лог
+            logger.info(f"Created Zabbix hostgroup '{hg.name}' -> {new_id}")
+
 
     # =====================================================================
     # -------------------- / END NEW CODE ---------------------------------
@@ -184,23 +191,31 @@ class HostSync(ZabbixSyncBase):
 
     # -------- host.create() with ensure groups --------
     def _create_host(self) -> str:
-        # ПЕРЕЗАГРУЗКА АКТУАЛЬНЫХ ГРУПП ИЗ БД
+        # ЗАГРУЖАЕМ ХОСТГРУППЫ ЧЕРЕЗ GFK
         device = self.obj.assigned_object
-        self.all_objects['hostgroups'] = list(
-            device.zabbixhostgroupassignment_set.select_related('zabbixhostgroup')
+        ct = ContentType.objects.get_for_model(device)
+
+        self.all_objects["hostgroups"] = list(
+            ZabbixHostGroupAssignment.objects.filter(
+                assigned_object_type=ct,
+                assigned_object_id=device.id,
+                zabbixhostgroup__zabbixserver=self.obj.zabbixserver,
+            ).select_related("zabbixhostgroup")
         )
 
-        # СОЗДАНИЕ ГРУПП (если нет groupid)
+        # Теперь создаём группы в Zabbix при необходимости
         self._ensure_zbx_groups()
 
+        # Создание хоста
         object_id = self.try_create()
         if not object_id:
-            raise RuntimeError(f"{self.__class__.__name__} creation returned no ID.")
+            raise RuntimeError("HostSync creation returned no ID")
 
         self.set_id(object_id)
         self.obj.save()
         self.obj.update_sync_info(success=True)
         return object_id
+
 
 
 
