@@ -448,17 +448,16 @@ class HostSync(ZabbixSyncBase):
         return {"tags": res}
 
     def get_groups(self):
-        """
-        Возвращает группы только по groupid — host.create/update не делает create group.
-        Теперь groupid ГАРАНТИРУЕТСЯ _ensure_zbx_groups().
-        """
-        res = []
-        for g in self.all_objects.get("hostgroups", []):
-            hg = getattr(g, "zabbixhostgroup", None)
-            gid = getattr(hg, "groupid", None)
-            if gid:
-                res.append({"groupid": gid})
-        return res
+        groups = []
+        for assignment in self.obj.device.zabbixhostgroupassignment_set.all():
+            hg = assignment.zabbixhostgroup
+
+            # ВАЖНО: фильтруем только для этого синка
+            if hg.zabbixserver_id != self.obj.zabbixserver_id:
+                continue
+
+            groups.append({'groupid': hg.groupid})
+        return groups
 
     def get_hostinventory(self):
         hi = self.all_objects.get("hostinventory")
