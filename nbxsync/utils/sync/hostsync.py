@@ -453,15 +453,16 @@ class HostSync(ZabbixSyncBase):
 
         groups = []
 
+        ct = ContentType.objects.get(app_label="dcim", model="device")
+
         qs = ZabbixHostgroupAssignment.objects.filter(
-            assigned_object_type="dcim.device",
+            assigned_object_type_id=ct.id,
             assigned_object_id=device.id
         )
 
         for assignment in qs:
             hg = assignment.zabbixhostgroup
 
-            # фильтруем только группы этого Zabbix-сервера
             if hg.zabbixserver_id != server_id:
                 continue
 
