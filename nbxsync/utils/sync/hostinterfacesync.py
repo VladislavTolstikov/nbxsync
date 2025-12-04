@@ -117,3 +117,61 @@ class HostInterfaceSync(ZabbixSyncBase):
 
         except Exception as err:
             self.obj.update_sync_info(success=False, message=str(err))
+    def sync(self, obj_id=None):
+        """
+        Override sync to auto-recreate interface if Zabbix returns
+        'Cannot switch host for interface' or interface does not exist.
+        """
+        # Если interfaceid есть — проверяем, существует ли он в Zabbix
+        if self.obj.interfaceid:
+            try:
+                found = self.api.hostinterface.get(interfaceids=self.obj.interfaceid)
+                if not found:
+                    # интерфейса нет → пересоздаём
+                    self.obj.interfaceid = None
+                    self.obj.save(update_fields=["interfaceid"])
+            except Exception:
+                # Любая ошибка API → сбрасываем interfaceid
+                self.obj.interfaceid = None
+                self.obj.save(update_fields=["interfaceid"])
+
+        # Если interfaceid отсутствует → create
+        if not self.obj.interfaceid:
+            params = self.get_create_params()
+            try:
+                result = self.api.hostinterface.create(**params)
+                new_id = int(result["interfaceids"][0])
+                self.obj.interfaceid = new_id
+                self.obj.save(update_fields=["interfaceid"])
+                self.obj.update_sync_info(success=True)
+                return
+            except Exception as e:
+                self.obj.update_sync_info(success=False, message=str(e))
+                return
+
+        # Иначе делаем update (стандартный путь)
+        try:
+            params = self.get_update_params()
+            self.api.hostinterface.update(**params)
+            self.obj.update_sync_info(success=True)
+        except Exception as e:
+            msg = str(e)
+            if "Cannot switch host for interface" in msg:
+                # Zabbix запрещает update → recreate
+                self.obj.interfaceid = None
+                self.obj.save(update_fields=["interfaceid"])
+                params = self.get_create_params()
+                try:
+                    result = self.api.hostinterface.create(**params)
+                    new_id = int(result["interfaceids"][0])
+                    self.obj.interfaceid = new_id
+                    self.obj.save(update_fields=["interfaceid"])
+                    self.obj.update_sync_info(success=True, message="Recreated interface")
+                    return
+                except Exception as e2:
+                    self.obj.update_sync_info(success=False, message=str(e2))
+                    return
+            else:
+                self.obj.update_sync_info(success=False, message=msg)
+                raise
+
