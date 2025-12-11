@@ -226,6 +226,16 @@ class HostSync(ZabbixSyncBase):
             params = self.get_update_params()
             params["hostid"] = object_id
 
+            # --- dedupe macros (локальный > наследованный) ---
+            macs = params.get("macros")
+            if isinstance(macs, list):
+                dedup = {}
+                for m in macs:
+                    name = m.get("macro")
+                    if name not in dedup or m.get("hostmacroid"):
+                        dedup[name] = m
+                params["macros"] = list(dedup.values())
+
             result = self.api_object().update(**params)
             updated = result.get(self.result_key(), [object_id])[0]
             self.set_id(updated)
