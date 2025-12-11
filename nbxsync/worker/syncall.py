@@ -104,15 +104,18 @@ def syncall(zabbixserver) -> None:
     )
 
     for a in assignments:
+        device_name = str(a.assigned_object)
         job_id = f"synchost_{server_id}_{a.pk}"
+
         queue.enqueue(
             "nbxsync.worker.synchost_assignment",
             args=(a.pk,),
             timeout=9000,
             job_id=job_id,
             depends_on=j_last,
-            description=f"Sync host assignment {a.pk} (server={server_id})",
+            description=f"Sync host {device_name} (server={server_id})",
         )
+
 
 
     if job:
