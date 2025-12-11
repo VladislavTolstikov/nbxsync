@@ -94,8 +94,28 @@ def synchost_assignment(assignment_id: int) -> None:
     except ZabbixServerAssignment.DoesNotExist:
         logger.warning("assignment %s missing", assignment_id)
         return
+
     obj = assignment.assigned_object
     if not obj:
         return
-    worker = SyncHostJob(instance=obj)
-    worker.run()
+
+    logger.info(
+        "HostSync START assignment %s (server=%s) device=%s",
+        assignment_id,
+        assignment.zabbixserver_id,
+        obj.name,
+    )
+
+    try:
+        worker = SyncHostJob(instance=obj)
+        worker.run()
+    except Exception as e:
+        logger.error(
+            "HostSync FAILED assignment %s (server=%s) device=%s error=%s",
+            assignment_id,
+            assignment.zabbixserver_id,
+            obj.name,
+            e,
+        )
+        raise
+
