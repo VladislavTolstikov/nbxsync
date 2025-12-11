@@ -59,44 +59,41 @@ def syncall(zabbixserver) -> None:
     logger.info("SyncAll dispatcher started for ZabbixServer id=%s", server_id)
 
     # --- глобальные джобы по цепочке ----------------------------------------
-    j1 = queue.enqueue(
-        "nbxsync.worker.sync_templates_from_zabbix",
-        args=(server_id,),
-        timeout=9000,
-        description=f"Sync templates from Zabbix (server={server_id})",
-    )
+    # УБРАНО: sync_templates_from_zabbix
 
-    j2 = queue.enqueue(
+    j1 = queue.enqueue(
         "nbxsync.worker.ensure_hostgroup_assignments",
         args=(server_id,),
         timeout=9000,
-        depends_on=j1,
         description=f"Ensure hostgroup assignments (server={server_id})",
     )
 
-    j3 = queue.enqueue(
+    j2 = queue.enqueue(
         "nbxsync.worker.sync_hostgroups_to_zabbix",
         args=(server_id,),
         timeout=9000,
-        depends_on=j2,
+        depends_on=j1,
         description=f"Sync hostgroups to Zabbix (server={server_id})",
     )
 
-    j4 = queue.enqueue(
+    j3 = queue.enqueue(
         "nbxsync.worker.sync_proxy_groups",
         args=(server_id,),
         timeout=9000,
-        depends_on=j3,
+        depends_on=j2,
         description=f"Sync proxy groups (server={server_id})",
     )
 
-    j5 = queue.enqueue(
+    j4 = queue.enqueue(
         "nbxsync.worker.sync_proxies",
         args=(server_id,),
         timeout=9000,
-        depends_on=j4,
+        depends_on=j3,
         description=f"Sync proxies (server={server_id})",
     )
+
+    j_last = j4
+
 
     # --- per-host джобы ------------------------------------------------------
     assignments = list(_iter_filtered_assignments(zabbixserver))
@@ -113,9 +110,10 @@ def syncall(zabbixserver) -> None:
             args=(a.pk,),
             timeout=9000,
             job_id=job_id,
-            depends_on=j5,
+            depends_on=j_last,
             description=f"Sync host assignment {a.pk} (server={server_id})",
         )
+
 
     if job:
         job.meta["progress"] = 100
