@@ -303,24 +303,28 @@ class HostSync(ZabbixSyncBase):
             if hi.type != ZabbixHostInterfaceTypeChoices.SNMP:
                 continue
 
-            if hi.snmp_version in [
+            # SNMP v1/v2 — ТОЛЬКО если community задано
+            if hi.snmp_version in (
                 ZabbixHostInterfaceSNMPVersionChoices.SNMPV1,
                 ZabbixHostInterfaceSNMPVersionChoices.SNMPV2,
-            ]:
-                result.append(
-                    {
-                        "macro": snmpconf.snmp_community,
-                        "value": hi.snmp_community,
-                        "description": "SNMPv2 Community",
-                        "type": 1,
-                    }
-                )
+            ):
+                if hi.snmp_community:
+                    result.append(
+                        {
+                            "macro": snmpconf.snmp_community,
+                            "value": hi.snmp_community,
+                            "description": "SNMPv2 Community",
+                            "type": 0,  # TEXT
+                        }
+                    )
+                continue
 
+            # SNMP v3
             if hi.snmp_version == ZabbixHostInterfaceSNMPVersionChoices.SNMPV3:
-                if hi.snmpv3_security_level in [
+                if hi.snmpv3_security_level in (
                     ZabbixInterfaceSNMPV3SecurityLevelChoices.AUTHNOPRIV,
                     ZabbixInterfaceSNMPV3SecurityLevelChoices.AUTHPRIV,
-                ]:
+                ) and hi.snmpv3_authentication_passphrase:
                     result.append(
                         {
                             "macro": snmpconf.snmp_authpass,
@@ -329,7 +333,12 @@ class HostSync(ZabbixSyncBase):
                             "type": 1,
                         }
                     )
-                if hi.snmpv3_security_level == ZabbixInterfaceSNMPV3SecurityLevelChoices.AUTHPRIV:
+
+                if (
+                    hi.snmpv3_security_level
+                    == ZabbixInterfaceSNMPV3SecurityLevelChoices.AUTHPRIV
+                    and hi.snmpv3_privacy_passphrase
+                ):
                     result.append(
                         {
                             "macro": snmpconf.snmp_privpass,
@@ -338,7 +347,9 @@ class HostSync(ZabbixSyncBase):
                             "type": 1,
                         }
                     )
+
         return result
+
 
     def get_macros(self):
         all_macros = self.get_defined_macros()

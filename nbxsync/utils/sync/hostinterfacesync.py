@@ -48,9 +48,12 @@ class HostInterfaceSync(ZabbixSyncBase):
                 'bulk': 1 if self.obj.snmp_usebulk else 0,
             }
 
-            if self.obj.snmp_version in [1, 2]:  # community is required if the SNMP Version is SNMPv1 or SNMPv2
-                snmp_community_macro = getattr(self.pluginsettings.snmpconfig, 'snmp_community', '{$SNMP_COMMUNITY}')
-                snmp_dict['community'] = snmp_community_macro
+            if self.obj.snmp_version in [1, 2]:
+                if self.obj.snmp_community:
+                    snmp_dict['community'] = self.obj.snmp_community
+                else:
+                    # community не задан → не передаём вообще
+                    pass
 
             if self.obj.snmp_version == 3:
                 snmp_authpass_macro = getattr(self.pluginsettings.snmpconfig, 'snmp_authpass', '{$SNMPV3_AUTHPASS}')
