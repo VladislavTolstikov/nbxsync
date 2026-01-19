@@ -1,5 +1,5 @@
 from django.db.models import Q
-from django_filters import CharFilter, ModelChoiceFilter, NumberFilter, OrderingFilter
+from django_filters import CharFilter, ModelChoiceFilter, NumberFilter
 
 from netbox.filtersets import NetBoxModelFilterSet
 
@@ -18,16 +18,7 @@ class ZabbixProxyGroupFilterSet(NetBoxModelFilterSet):
     failover_delay = NumberFilter()
     zabbixserver = ModelChoiceFilter(queryset=ZabbixServer.objects.all())
 
-    ordering = OrderingFilter(
-        fields=(
-            ('proxy_groupid', 'proxy_groupid'),
-            ('name', 'name'),
-            ('min_online', 'min_online'),
-            ('failover_delay', 'failover_delay'),
-            ('zabbixserver__name', 'zabbixserver_name'),
-            ('id', 'id'),
-        )
-    )
+
 
     class Meta:
         model = ZabbixProxyGroup
