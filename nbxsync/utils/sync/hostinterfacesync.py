@@ -39,7 +39,7 @@ class HostInterfaceSync(ZabbixSyncBase):
             'dns': self.obj.dns,
             'port': str(self.obj.port),
             'useip': self.obj.useip,
-            'main': 1 if self.obj.main else 0,
+            'main': 1 if int(self.obj.interface_type or 0) == 1 else 0,
         }
 
         if self.obj.type == 2:  # SNMP
