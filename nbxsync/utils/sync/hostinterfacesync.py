@@ -52,8 +52,8 @@ class HostInterfaceSync(ZabbixSyncBase):
                 if self.obj.snmp_community:
                     snmp_dict['community'] = self.obj.snmp_community
                 else:
-                    # community не задан → не передаём вообще
-                    pass
+                    snmp_comm_macro = getattr(self.pluginsettings.snmpconfig, 'snmp_comm', '{$SNMP_COMMUNITY}')
+                    snmp_dict['community'] = snmp_comm_macro
 
             if self.obj.snmp_version == 3:
                 snmp_authpass_macro = getattr(self.pluginsettings.snmpconfig, 'snmp_authpass', '{$SNMPV3_AUTHPASS}')
