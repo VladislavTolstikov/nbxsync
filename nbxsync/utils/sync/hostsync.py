@@ -190,6 +190,8 @@ class HostSync(ZabbixSyncBase):
 
         self.sync_to_zabbix(object_id=None)
 
+
+
     # -------- host.create() with ensure groups --------
     def _create_host(self) -> str:
         # ЗАГРУЖАЕМ ХОСТГРУППЫ ЧЕРЕЗ GFK
@@ -207,8 +209,35 @@ class HostSync(ZabbixSyncBase):
         # Теперь создаём группы в Zabbix при необходимости
         self._ensure_zbx_groups()
 
-        # Создание хоста
-        object_id = self.try_create()
+        try:
+            object_id = self.try_create()
+        except RuntimeError as err:
+            err_text = str(err)
+            if 'Host with the same name' not in err_text:
+                raise
+
+            host_name = self.get_create_params().get("host")
+            if not host_name:
+                raise RuntimeError(
+                    "HostSync: create failed due to duplicate host name, "
+                    "but create params do not contain 'host'"
+                ) from err
+
+            existing = self.api_object().get(
+                filter={"host": [host_name]},
+                output=["hostid", "host"],
+            )
+
+            if not existing:
+                raise RuntimeError(
+                    f"HostSync: duplicate name reported by Zabbix, "
+                    f"but existing host '{host_name}' was not found"
+                ) from err
+
+            object_id = str(existing[0]["hostid"])
+            self.sync_to_zabbix(object_id)
+            return object_id
+
         if not object_id:
             raise RuntimeError("HostSync creation returned no ID")
 
