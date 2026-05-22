@@ -1,7 +1,12 @@
+import logging
+
 from ipam.models import IPAddress
 from nbxsync.models import ZabbixServerAssignment
 
 from .syncbase import ZabbixSyncBase
+
+
+logger = logging.getLogger(__name__)
 
 
 class HostInterfaceSync(ZabbixSyncBase):
@@ -14,28 +19,38 @@ class HostInterfaceSync(ZabbixSyncBase):
     def get_name_value(self):
         return self.obj.assigned_object.name
 
+    def _get_hostid(self):
+        hostid = self.context.get('hostid')
+        if hostid:
+            return hostid
+
+        assignment = ZabbixServerAssignment.objects.filter(
+            assigned_object_type=self.obj.assigned_object_type,
+            assigned_object_id=self.obj.assigned_object_id,
+            zabbixserver=self.obj.zabbixserver,
+        ).first()
+
+        return assignment.hostid if assignment else None
+
+    def _get_ipaddr(self):
+        if not self.obj.ip_id:
+            return ''
+
+        ip_obj = getattr(self.obj, 'ip', None)
+        if ip_obj is None:
+            ip_obj = IPAddress.objects.get(id=self.obj.ip_id)
+
+        return str(ip_obj.address.ip)
+
     def get_create_params(self) -> dict:
-        hostid = self.context.get('hostid', None)
-        zbxserverassignment = None
-
+        hostid = self._get_hostid()
         if not hostid:
-            # No HostID, get it from the assignment
-            zbxserverassignment = ZabbixServerAssignment.objects.filter(assigned_object_type=self.obj.assigned_object_type, assigned_object_id=self.obj.assigned_object.id).first()
-            # If the assignment isnt found... Return
-            if not zbxserverassignment:
-                return {}
-
-            # Update the hostid field :)
-            hostid = zbxserverassignment.hostid
-
-        ipaddr = ''
-        if self.obj.ip_id:
-            ipaddr = IPAddress.objects.get(id=self.obj.ip_id).address.ip
+            return {}
 
         result = {
             'hostid': hostid,
             'type': self.obj.type,
-            'ip': str(ipaddr),
+            'ip': self._get_ipaddr(),
             'dns': self.obj.dns,
             'port': str(self.obj.port),
             'useip': self.obj.useip,
@@ -52,12 +67,24 @@ class HostInterfaceSync(ZabbixSyncBase):
                 if self.obj.snmp_community:
                     snmp_dict['community'] = self.obj.snmp_community
                 else:
-                    snmp_comm_macro = getattr(self.pluginsettings.snmpconfig, 'snmp_comm', '{$SNMP_COMMUNITY}')
+                    snmp_comm_macro = getattr(
+                        self.pluginsettings.snmpconfig,
+                        'snmp_comm',
+                        '{$SNMP_COMMUNITY}',
+                    )
                     snmp_dict['community'] = snmp_comm_macro
 
             if self.obj.snmp_version == 3:
-                snmp_authpass_macro = getattr(self.pluginsettings.snmpconfig, 'snmp_authpass', '{$SNMPV3_AUTHPASS}')
-                snmp_privpass_macro = getattr(self.pluginsettings.snmpconfig, 'snmp_privpass', '{$SNMPV3_PRIVPASS}')
+                snmp_authpass_macro = getattr(
+                    self.pluginsettings.snmpconfig,
+                    'snmp_authpass',
+                    '{$SNMPV3_AUTHPASS}',
+                )
+                snmp_privpass_macro = getattr(
+                    self.pluginsettings.snmpconfig,
+                    'snmp_privpass',
+                    '{$SNMPV3_PRIVPASS}',
+                )
 
                 snmp_dict['contextname'] = self.obj.snmpv3_context_name
                 snmp_dict['securityname'] = self.obj.snmpv3_security_name
@@ -73,29 +100,117 @@ class HostInterfaceSync(ZabbixSyncBase):
 
     def get_update_params(self, **kwargs) -> dict:
         params = self.get_create_params()
+        params.pop('hostid', None)
         params['interfaceid'] = self.obj.interfaceid
         return params
 
     def result_key(self) -> str:
         return 'interfaceids'
 
+    def _exact_match(self, interface, params):
+        if int(interface.get('type', 0)) != int(params.get('type', 0)):
+            return False
+
+        if str(interface.get('port', '')) != str(params.get('port', '')):
+            return False
+
+        if int(interface.get('useip', 1)) != int(params.get('useip', 1)):
+            return False
+
+        if int(params.get('useip', 1)) == 1:
+            return interface.get('ip') == params.get('ip')
+
+        return interface.get('dns') == params.get('dns')
+
+    def _find_existing_interface(self, hostid):
+        params = self.get_create_params()
+        if not params:
+            return None
+
+        expected_type = int(params['type'])
+        expected_main = int(params['main'])
+
+        interfaces = self.api.hostinterface.get(
+            hostids=hostid,
+            output='extend',
+            selectDetails='extend',
+        )
+
+        same_type_main = [
+            i for i in interfaces
+            if int(i.get('type', 0)) == expected_type
+            and int(i.get('main', 0)) == expected_main
+        ]
+
+        # Главный кейс: default-интерфейс этого типа у хоста.
+        # В Zabbix он может быть только один.
+        if len(same_type_main) == 1:
+            return same_type_main[0]
+
+        # Для non-default или неоднозначных случаев ищем точное совпадение.
+        for interface in same_type_main:
+            if self._exact_match(interface, params):
+                return interface
+
+        for interface in interfaces:
+            if self._exact_match(interface, params):
+                return interface
+
+        return None
+
+    def _set_interfaceid(self, interfaceid):
+        self.obj.interfaceid = int(interfaceid)
+        self.obj.save(update_fields=['interfaceid'])
+
+    def _update_existing(self, message=''):
+        params = self.get_update_params()
+        if not params.get('interfaceid'):
+            self.obj.update_sync_info(
+                success=False,
+                message='HostInterfaceSync update failed: interfaceid is empty',
+            )
+            return
+
+        self.api.hostinterface.update(**params)
+        self.obj.update_sync_info(success=True, message=message)
+
+    def _create_interface(self):
+        params = self.get_create_params()
+        if not params:
+            self.obj.update_sync_info(
+                success=False,
+                message='HostInterfaceSync create failed: hostid not found',
+            )
+            return
+
+        result = self.api.hostinterface.create(**params)
+        new_id = int(result['interfaceids'][0])
+        self._set_interfaceid(new_id)
+        self.obj.update_sync_info(success=True, message='Created interface')
+
+    def _adopt_and_update(self, hostid, message='Adopted existing interface and updated'):
+        existing = self._find_existing_interface(hostid)
+        if not existing:
+            return False
+
+        self._set_interfaceid(existing['interfaceid'])
+        self._update_existing(message=message)
+        return True
+
     def sync_from_zabbix(self, data: dict) -> None:
         try:
             self.obj.interfaceid = int(data['interfaceid'])
             self.obj.type = int(data.get('type', self.obj.type))
             self.obj.useip = int(data.get('useip', self.obj.useip))
-            self.obj.interface_type = int(data.get('main', self.obj.interface_type))  # 'main' indicates default interface
+            self.obj.interface_type = int(data.get('main', self.obj.interface_type))
             self.obj.dns = data.get('dns', '')
             self.obj.port = int(data.get('port')) if data.get('port') else None
 
             ip = data.get('ip')
             if ip:
-                from ipam.models import IPAddress
-
                 ip_obj = IPAddress.objects.filter(address__net_host=ip).first()
                 self.obj.ip = ip_obj
 
-            # SNMP handling
             snmp_data = data.get('details', {})
             if self.obj.type == 2:  # SNMP
                 self.obj.snmp_version = snmp_data.get('version', self.obj.snmp_version)
@@ -111,70 +226,83 @@ class HostInterfaceSync(ZabbixSyncBase):
                     self.obj.snmpv3_authentication_protocol = snmp_data.get('authprotocol')
                     self.obj.snmpv3_privacy_protocol = snmp_data.get('privprotocol')
 
-                    # Optional passphrases are Zabbix macros, don't overwrite them unless required
-                    # self.obj.snmpv3_authentication_passphrase = snmp_data.get('authpassphrase', '')
-                    # self.obj.snmpv3_privacy_passphrase = snmp_data.get('privpassphrase', '')
-
             self.obj.save()
             self.obj.update_sync_info(success=True, message='')
 
         except Exception as err:
             self.obj.update_sync_info(success=False, message=str(err))
+
     def sync(self, obj_id=None):
-        """
-        Override sync to auto-recreate interface if Zabbix returns
-        'Cannot switch host for interface' or interface does not exist.
-        """
-        # Если interfaceid есть — проверяем, существует ли он в Zabbix
+        hostid = self._get_hostid()
+        if not hostid:
+            self.obj.update_sync_info(
+                success=False,
+                message='HostInterfaceSync failed: hostid not found',
+            )
+            return
+
         if self.obj.interfaceid:
             try:
-                found = self.api.hostinterface.get(interfaceids=self.obj.interfaceid)
-                if not found:
-                    # интерфейса нет → пересоздаём
-                    self.obj.interfaceid = None
-                    self.obj.save(update_fields=["interfaceid"])
-            except Exception:
-                # Любая ошибка API → сбрасываем interfaceid
-                self.obj.interfaceid = None
-                self.obj.save(update_fields=["interfaceid"])
-
-        # Если interfaceid отсутствует → create
-        if not self.obj.interfaceid:
-            params = self.get_create_params()
-            try:
-                result = self.api.hostinterface.create(**params)
-                new_id = int(result["interfaceids"][0])
-                self.obj.interfaceid = new_id
-                self.obj.save(update_fields=["interfaceid"])
-                self.obj.update_sync_info(success=True)
-                return
-            except Exception as e:
-                self.obj.update_sync_info(success=False, message=str(e))
+                found = self.api.hostinterface.get(
+                    interfaceids=self.obj.interfaceid,
+                    output='extend',
+                    selectDetails='extend',
+                )
+            except Exception as err:
+                # Важно: не сбрасываем interfaceid при временной ошибке API.
+                self.obj.update_sync_info(
+                    success=False,
+                    message=f'HostInterfaceSync failed to verify interfaceid {self.obj.interfaceid}: {err}',
+                )
                 return
 
-        # Иначе делаем update (стандартный путь)
-        try:
-            params = self.get_update_params()
-            self.api.hostinterface.update(**params)
-            self.obj.update_sync_info(success=True)
-        except Exception as e:
-            msg = str(e)
-            if "Cannot switch host for interface" in msg:
-                # Zabbix запрещает update → recreate
+            if found:
+                zbx_interface = found[0]
+
+                if str(zbx_interface.get('hostid')) == str(hostid):
+                    try:
+                        self._update_existing()
+                    except Exception as err:
+                        self.obj.update_sync_info(success=False, message=str(err))
+                    return
+
+                # interfaceid указывает на интерфейс другого хоста.
+                # Это битая привязка: очищаем и ниже пробуем adopt/create.
                 self.obj.interfaceid = None
-                self.obj.save(update_fields=["interfaceid"])
-                params = self.get_create_params()
-                try:
-                    result = self.api.hostinterface.create(**params)
-                    new_id = int(result["interfaceids"][0])
-                    self.obj.interfaceid = new_id
-                    self.obj.save(update_fields=["interfaceid"])
-                    self.obj.update_sync_info(success=True, message="Recreated interface")
-                    return
-                except Exception as e2:
-                    self.obj.update_sync_info(success=False, message=str(e2))
-                    return
+                self.obj.save(update_fields=['interfaceid'])
             else:
-                self.obj.update_sync_info(success=False, message=msg)
-                raise
+                # ID реально отсутствует в Zabbix: очищаем и ниже пробуем adopt/create.
+                self.obj.interfaceid = None
+                self.obj.save(update_fields=['interfaceid'])
 
+        if not self.obj.interfaceid:
+            try:
+                if self._adopt_and_update(hostid):
+                    return
+            except Exception as err:
+                self.obj.update_sync_info(
+                    success=False,
+                    message=f'HostInterfaceSync failed to adopt existing interface: {err}',
+                )
+                return
+
+        if not self.obj.interfaceid:
+            try:
+                self._create_interface()
+                return
+            except Exception as err:
+                msg = str(err)
+
+                if 'more than one default interface of the same type' in msg:
+                    try:
+                        if self._adopt_and_update(
+                            hostid,
+                            message='Adopted existing default interface and updated',
+                        ):
+                            return
+                    except Exception as adopt_err:
+                        self.obj.update_sync_info(success=False, message=str(adopt_err))
+                        return
+
+                self.obj.update_sync_info(success=False, message=msg)
+                return
