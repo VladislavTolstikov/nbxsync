@@ -9,7 +9,7 @@ from dcim.models import Device, Location
 from tenancy.models import Tenant
 
 
-CF_KEY = "Zabbix_description"  # slug кастомного поля в NetBox
+CF_KEY = "zabbix_description"  # slug кастомного поля в NetBox
 
 
 def _build_location_path(device: Device) -> str:
@@ -77,9 +77,9 @@ def _device_link(device):
     Строим абсолютную ссылку на девайс.
     1) Берём SITE_URL из NetBox.
     2) Если он пустой – пробуем NB_URL из env.
-    3) Если и там пусто – жёстко используем http://172.29.1.124.
+    3) Если и там пусто – жёстко используем https://nbx.muctr.ru.
     """
-    base = (getattr(settings, "SITE_URL", "") or os.getenv("NB_URL") or "http://172.29.1.124").rstrip("/")
+    base = (getattr(settings, "SITE_URL", "") or os.getenv("NB_URL") or "https://nbx.muctr.ru").rstrip("/")
     return f"{base}{device.get_absolute_url()}"
 
 

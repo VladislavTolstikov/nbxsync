@@ -37,10 +37,13 @@ class SyncHostJob:
     def delete_host(self, assignment):
         safe_delete(HostSync, assignment)
 
-    def verify_hostinterfaces(self, assignment):
-        all_objects = get_assigned_zabbixobjects(self.instance)
-        run_zabbix_operation(HostSync, assignment, 'verify_hostinterfaces', extra_args={'all_objects': all_objects})
-
+    def verify_hostinterfaces(self, assignment, all_objects):
+        run_zabbix_operation(
+            HostSync,
+            assignment,
+            "verify_hostinterfaces",
+            extra_args={"all_objects": all_objects},
+        )
     def sync_host(self, assignment):
         try:
             all_objects = get_assigned_zabbixobjects(self.instance)
