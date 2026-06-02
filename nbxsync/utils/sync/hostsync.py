@@ -251,6 +251,8 @@ class HostSync(ZabbixSyncBase):
     # -------- update host OR create host --------
     def sync_to_zabbix(self, object_id):
         if object_id:
+            self._ensure_zbx_groups()
+
             params = self._dedupe_macros_in_params(self.get_update_params())
             params["hostid"] = object_id
 
