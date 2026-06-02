@@ -194,17 +194,6 @@ class HostSync(ZabbixSyncBase):
 
     # -------- host.create() with ensure groups --------
     def _create_host(self) -> str:
-        # ЗАГРУЖАЕМ ХОСТГРУППЫ ЧЕРЕЗ GFK
-        device = self.obj.assigned_object
-        ct = ContentType.objects.get_for_model(device)
-
-        self.all_objects["hostgroups"] = list(
-            ZabbixHostgroupAssignment.objects.filter(
-                assigned_object_type=ct,
-                assigned_object_id=device.id,
-                zabbixhostgroup__zabbixserver=self.obj.zabbixserver,
-            ).select_related("zabbixhostgroup")
-        )
 
         # Теперь создаём группы в Zabbix при необходимости
         self._ensure_zbx_groups()
@@ -505,25 +494,25 @@ class HostSync(ZabbixSyncBase):
         return {"tags": res}
 
     def get_groups(self):
-        device = self.obj.assigned_object
         server_id = self.obj.zabbixserver_id
-
         groups = []
+        seen = set()
 
-        ct = ContentType.objects.get(app_label="dcim", model="device")
-
-        qs = ZabbixHostgroupAssignment.objects.filter(
-            assigned_object_type_id=ct.id,
-            assigned_object_id=device.id
-        )
-
-        for assignment in qs:
+        for assignment in self.all_objects.get("hostgroups", []):
             hg = assignment.zabbixhostgroup
 
             if hg.zabbixserver_id != server_id:
                 continue
 
-            groups.append({"groupid": hg.groupid})
+            if not hg.groupid:
+                continue
+
+            gid = int(hg.groupid)
+            if gid in seen:
+                continue
+
+            groups.append({"groupid": gid})
+            seen.add(gid)
 
         return groups
 
