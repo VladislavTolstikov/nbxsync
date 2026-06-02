@@ -37,11 +37,6 @@ class HostSync(ZabbixSyncBase):
     # =====================================================================
 
     def _ensure_zbx_groups(self):
-        """
-        Гарантирует, что каждая ZabbixHostGroup в assignments имеет groupid в Zabbix.
-        Если groupid отсутствует — создаёт группу в Zabbix и сохраняет её.
-        """
-
         hostgroups = self.all_objects.get("hostgroups", [])
         if not hostgroups:
             return
@@ -49,27 +44,40 @@ class HostSync(ZabbixSyncBase):
         for ass in hostgroups:
             hg = ass.zabbixhostgroup
 
-            # Если уже есть groupid → пропускаем
-            if hg.groupid:
+            if hg.zabbixserver_id != self.obj.zabbixserver_id:
                 continue
 
-            # Создание группы в Zabbix
-            params = {
-                "name": hg.name,
-            }
+            name, ok = ass.render()
+            if not ok or not name:
+                raise RuntimeError(f"Failed to render Zabbix hostgroup assignment {ass.id}")
 
-            try:
-                result = self.api.hostgroup.create(**params)
-                new_id = int(result["groupids"][0])
-            except Exception as e:
-                raise RuntimeError(f"Failed to create Zabbix hostgroup '{hg.name}': {e}")
+            existing = self.api.hostgroup.get(
+                filter={"name": [name]},
+                output=["groupid", "name"],
+            )
 
-            # Сохраняем groupid в NetBox
-            hg.groupid = new_id
-            hg.save(update_fields=["groupid"])
+            if existing:
+                groupid = int(existing[0]["groupid"])
+            else:
+                result = self.api.hostgroup.create(name=name)
+                groupid = int(result["groupids"][0])
 
-            # Лог
-            logger.info(f"Created Zabbix hostgroup '{hg.name}' -> {new_id}")
+            if not ass.is_template():
+                if hg.groupid != groupid:
+                    hg.groupid = groupid
+                    hg.save(update_fields=["groupid"])
+            else:
+                from nbxsync.models import ZabbixHostgroup
+
+                ZabbixHostgroup.objects.update_or_create(
+                    zabbixserver=hg.zabbixserver,
+                    name=name,
+                    defaults={
+                        "value": name,
+                        "groupid": groupid,
+                        "description": "Automatically generated from template",
+                    },
+                )
 
 
     # =====================================================================
@@ -111,7 +119,7 @@ class HostSync(ZabbixSyncBase):
             except Exception as e:
                 logger.warning("Failed ZBX desc for %s: %s", assigned, e)
 
-        return {
+        params = {
             "host": host_value,
             "name": nb_name,
             "description": zbx_description,
@@ -123,6 +131,8 @@ class HostSync(ZabbixSyncBase):
             **self.get_macros(),
             **self.get_hostinventory(),
         }
+
+        return self._dedupe_macros_in_params(params)
 
     # -------- host.update() parameters (MERGE tags etc) --------
     def get_update_params(self, **kwargs) -> dict:
@@ -241,18 +251,8 @@ class HostSync(ZabbixSyncBase):
     # -------- update host OR create host --------
     def sync_to_zabbix(self, object_id):
         if object_id:
-            params = self.get_update_params()
+            params = self._dedupe_macros_in_params(self.get_update_params())
             params["hostid"] = object_id
-
-            # --- dedupe macros (локальный > наследованный) ---
-            macs = params.get("macros")
-            if isinstance(macs, list):
-                dedup = {}
-                for m in macs:
-                    name = m.get("macro")
-                    if name not in dedup or m.get("hostmacroid"):
-                        dedup[name] = m
-                params["macros"] = list(dedup.values())
 
             result = self.api_object().update(**params)
             updated = result.get(self.result_key(), [object_id])[0]
@@ -453,6 +453,7 @@ class HostSync(ZabbixSyncBase):
             for t in res:
                 self.templates["templates"].append(t)
             return {}
+        return {}
 
     def merge_zabbix_and_netbox_tags(self, zabbix_tags, netbox_tags):
         def norm(t):
@@ -481,13 +482,15 @@ class HostSync(ZabbixSyncBase):
         zstat = mapping.get(status)
 
         res = []
-        for t in self.all_objects.get('tags', []):
-            value, _ = t.render()
+        for t in self.all_objects.get("tags", []):
+            value, ok = t.render()
+            if not ok:
+                raise RuntimeError(f"Failed to render Zabbix tag assignment {t.id}")
             res.append({"tag": t.zabbixtag.tag, "value": value})
 
         if zstat == ZabbixHostStatus.ENABLED_NO_ALERTING:
             res.append({
-                "tag": f"${{{self.pluginsettings.no_alerting_tag}}}",
+                "tag": self.pluginsettings.no_alerting_tag,
                 "value": str(self.pluginsettings.no_alerting_tag_value),
             })
 
@@ -504,15 +507,32 @@ class HostSync(ZabbixSyncBase):
             if hg.zabbixserver_id != server_id:
                 continue
 
-            if not hg.groupid:
+            gid = hg.groupid
+
+            if not gid:
+                name, ok = assignment.render()
+                if not ok or not name:
+                    continue
+
+                found = self.api.hostgroup.get(
+                    filter={"name": [name]},
+                    output=["groupid", "name"],
+                )
+                if found:
+                    gid = int(found[0]["groupid"])
+
+            if not gid:
                 continue
 
-            gid = int(hg.groupid)
+            gid = int(gid)
             if gid in seen:
                 continue
 
             groups.append({"groupid": gid})
             seen.add(gid)
+
+        if not groups:
+            raise RuntimeError(f"No Zabbix hostgroups resolved for host {self.obj.assigned_object}")
 
         return groups
 
@@ -544,3 +564,21 @@ class HostSync(ZabbixSyncBase):
 
     def sanitize_string(self, s, repl="_"):
         return re.sub(r"[^0-9a-zA-Z_. \-]", repl, s)
+
+    def _dedupe_macros_in_params(self, params: dict) -> dict:
+        macs = params.get("macros")
+        if not isinstance(macs, list):
+            return params
+
+        dedup = {}
+        for m in macs:
+            name = m.get("macro")
+            if not name:
+                continue
+
+            # первый выигрывает: direct assignment у тебя идёт раньше inherited
+            if name not in dedup:
+                dedup[name] = m
+
+        params["macros"] = list(dedup.values())
+        return params

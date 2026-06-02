@@ -62,4 +62,4 @@ class ZabbixMacroAssignment(SyncInfoModel, NetBoxModel):
 
     @property
     def full_name(self):
-        return self
+        return str(self)

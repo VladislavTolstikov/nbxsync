@@ -121,7 +121,11 @@ class MaintenanceSync(ZabbixSyncBase):
         for host in ZabbixMaintenanceObjectAssignment.objects.exclude(assigned_object_type=zabbixhostgroup_ct).filter(zabbixmaintenance=self.obj):
             object_ct = ContentType.objects.get_for_model(host.assigned_object)
             hostid = None
-            zabbixserver_assignment = ZabbixServerAssignment.objects.filter(assigned_object_type=object_ct, assigned_object_id=host.assigned_object_id).first()
+            zabbixserver_assignment = ZabbixServerAssignment.objects.filter(
+                assigned_object_type=object_ct,
+                assigned_object_id=host.assigned_object_id,
+                zabbixserver=self.obj.zabbixserver,
+            ).first()
             if not zabbixserver_assignment:
                 continue
 
@@ -136,13 +140,21 @@ class MaintenanceSync(ZabbixSyncBase):
     def get_hostgroups(self) -> list:
         result = []
         zabbixhostgroup_ct = ContentType.objects.get_for_model(ZabbixHostgroup)
-        for group in ZabbixMaintenanceObjectAssignment.objects.filter(zabbixmaintenance=self.obj, assigned_object_type=zabbixhostgroup_ct):
+
+        for group in ZabbixMaintenanceObjectAssignment.objects.filter(
+            zabbixmaintenance=self.obj,
+            assigned_object_type=zabbixhostgroup_ct,
+        ):
             zabbixhostgroup = ZabbixHostgroup.objects.get(id=group.assigned_object_id)
+
+            if zabbixhostgroup.zabbixserver_id != self.obj.zabbixserver_id:
+                continue
 
             if not zabbixhostgroup.groupid:
                 continue
 
-            result.append({'groupid': zabbixhostgroup.groupid})
+            result.append({"groupid": zabbixhostgroup.groupid})
+
         return result
 
     def get_tags(self) -> list:
