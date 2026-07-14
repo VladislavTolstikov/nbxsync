@@ -13,15 +13,17 @@ __all__ = ('SyncHostJob',)
 
 class SyncHostJob:
     def __init__(self, **kwargs):
-        self.instance = kwargs.get('instance')  # This is the Device or VirtualMachine object
+        self.instance = kwargs.get('instance')
 
     def run(self):
         object_ct = ContentType.objects.get_for_model(self.instance)
-
-        zabbixserver_assignments = ZabbixServerAssignment.objects.filter(assigned_object_type=object_ct, assigned_object_id=self.instance.pk)
+        zabbixserver_assignments = ZabbixServerAssignment.objects.filter(
+            assigned_object_type=object_ct,
+            assigned_object_id=self.instance.pk,
+        )
 
         status = self.instance.status
-        object_type = self.instance._meta.model_name  # "device" or "virtualmachine"
+        object_type = self.instance._meta.model_name
         pluginsettings = get_plugin_settings()
         status_mapping = getattr(pluginsettings.statusmapping, object_type, {})
         zabbix_status = status_mapping.get(status)
@@ -30,9 +32,8 @@ class SyncHostJob:
             if zabbix_status == ZabbixHostStatus.DELETED:
                 self.delete_host(assignment)
             else:
-                self.sync_host(assignment)
-                self.verify_hostinterfaces(assignment)
-                # Check if host has Maintenance, if so: sync Maintenance
+                all_objects = self.sync_host(assignment)
+                self.verify_hostinterfaces(assignment, all_objects)
 
     def delete_host(self, assignment):
         safe_delete(HostSync, assignment)
@@ -41,40 +42,68 @@ class SyncHostJob:
         run_zabbix_operation(
             HostSync,
             assignment,
-            "verify_hostinterfaces",
-            extra_args={"all_objects": all_objects},
+            'verify_hostinterfaces',
+            extra_args={'all_objects': all_objects},
         )
+
+    def _filter_objects_for_server(self, all_objects, server_id):
+        filtered = dict(all_objects)
+
+        filtered['hostinterfaces'] = [
+            obj for obj in all_objects.get('hostinterfaces', [])
+            if obj.zabbixserver_id == server_id
+        ]
+        filtered['hostgroups'] = [
+            obj for obj in all_objects.get('hostgroups', [])
+            if obj.zabbixhostgroup.zabbixserver_id == server_id
+        ]
+        filtered['templates'] = [
+            obj for obj in all_objects.get('templates', [])
+            if obj.zabbixtemplate.zabbixserver_id == server_id
+        ]
+
+        return filtered
+
     def sync_host(self, assignment):
         try:
             all_objects = get_assigned_zabbixobjects(self.instance)
-            # Add the assigned_objects attribute, so we dont have to do this expensive calculation again later on :)
+            all_objects = self._filter_objects_for_server(
+                all_objects,
+                assignment.zabbixserver_id,
+            )
             assignment.assigned_objects = all_objects
 
-            # Create all hostgroups
             for hostgroup in all_objects['hostgroups']:
                 safe_sync(HostGroupSync, hostgroup)
 
-            # Sync ProxyGroups and proxies (in that order!)
-            # If the ZabbixServer Assignment has a Proxy, sync it
             if assignment.zabbixproxy:
-                # If the ZabbixProxy is assigned to a ProxyGroup, sync the group first.
                 if assignment.zabbixproxy.proxygroup:
                     safe_sync(ProxyGroupSync, assignment.zabbixproxy.proxygroup)
                 safe_sync(ProxySync, assignment.zabbixproxy)
 
-            # If the ZabbixServer Assignment has a ProxyGroup, sync it
             if assignment.zabbixproxygroup:
                 safe_sync(ProxyGroupSync, assignment.zabbixproxygroup)
 
-            # Sync the actual Host
-            safe_sync(HostSync, assignment, extra_args={'all_objects': all_objects, 'skip_templates': True})
+            safe_sync(
+                HostSync,
+                assignment,
+                extra_args={'all_objects': all_objects, 'skip_templates': True},
+            )
 
-            # Once the Host exists and we have a HostId, time to sync the interfaces
             for hostinterface in all_objects['hostinterfaces']:
-                safe_sync(HostInterfaceSync, hostinterface, extra_args={'hostid': assignment.hostid})
+                safe_sync(
+                    HostInterfaceSync,
+                    hostinterface,
+                    extra_args={'hostid': assignment.hostid},
+                )
 
-            # Sync templates after interfaces are present
-            safe_sync(HostSync, assignment, extra_args={'all_objects': all_objects})
+            safe_sync(
+                HostSync,
+                assignment,
+                extra_args={'all_objects': all_objects},
+            )
+
+            return all_objects
 
         except Exception as e:
             raise RuntimeError(f'Unexpected error: {e}')
