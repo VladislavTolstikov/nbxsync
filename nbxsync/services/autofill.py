@@ -323,21 +323,36 @@ def _ensure_templates(device, ct, server, templates, rule, result):
 
 
 def _ensure_inventory(device, ct, result):
-    rack_name = str(getattr(getattr(device, 'rack', None), 'name', '') or '').strip()[:128]
+    site_rack_template = (
+        '{% if object.rack %}{{ object.rack.name }}'
+        '{% if object.position %}, U{{ object.position }}{% endif %}'
+        '{% endif %}'
+    )
+
     inventory, created = ZabbixHostInventory.objects.get_or_create(
         assigned_object_type=ct,
         assigned_object_id=device.pk,
-        defaults={'inventory_mode': ZabbixHostInventoryModeChoices.MANUAL, 'site_rack': rack_name},
+        defaults={
+            'inventory_mode': ZabbixHostInventoryModeChoices.MANUAL,
+            'site_rack': site_rack_template,
+        },
     )
+
     if created:
         result.inventory_created += 1
-        if not rack_name:
-            result.warnings.append('Inventory created without site_rack: device has no rack.')
         return
-    if not rack_name:
-        result.warnings.append('site_rack preserved: device has no rack.')
-    elif inventory.site_rack != rack_name:
-        inventory.site_rack = rack_name
+
+    changed = False
+
+    if inventory.inventory_mode != ZabbixHostInventoryModeChoices.MANUAL:
+        inventory.inventory_mode = ZabbixHostInventoryModeChoices.MANUAL
+        changed = True
+
+    if inventory.site_rack != site_rack_template:
+        inventory.site_rack = site_rack_template
+        changed = True
+
+    if changed:
         inventory.save()
         result.inventory_updated += 1
 
