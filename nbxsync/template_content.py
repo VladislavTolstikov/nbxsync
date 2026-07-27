@@ -55,40 +55,37 @@ class ZabbixDeviceButtonsExtension(PluginTemplateExtension):
         assigned_hostinterface_types = set(ZabbixHostInterface.objects.filter(assigned_object_type=ct, assigned_object_id=object.pk).values_list('type', flat=True).distinct())
         assigned_zabbixtemplates = ZabbixTemplateAssignment.objects.filter(assigned_object_type=ct, assigned_object_id=object.pk)
 
-        # If there are no templates, there is no requirement for any interface
-        # So, set it to true
         if len(assigned_zabbixtemplates) == 0:
             has_hostinterface_assignment = True
 
-        # Next step:
-        # Loop through all Templates and gather all required interfaces
         for assigned_template in assigned_zabbixtemplates:
-            # Extract requirement flags/sets
             required = set(assigned_template.zabbixtemplate.interface_requirements or [])
             has_none = HostInterfaceRequirementChoices.NONE in required
             has_any = HostInterfaceRequirementChoices.ANY in required
             actual_required = required - {HostInterfaceRequirementChoices.NONE, HostInterfaceRequirementChoices.ANY}
 
-            # Evaluate
             if has_none and not has_any and not actual_required:
-                # "NONE" only → no interfaces required
                 has_hostinterface_assignment = True
             else:
-                # If "ANY" is present, require at least one assigned interface
                 any_ok = (len(assigned_hostinterface_types) > 0) if has_any else True
-
-                # If specific types are present, require all of them
                 specific_ok = actual_required.issubset(assigned_hostinterface_types) if actual_required else True
-
                 has_hostinterface_assignment = any_ok and specific_ok
 
-        return self.render(
+        rendered = ''
+        if object._meta.label_lower == 'dcim.device':
+            rendered += self.render(
+                'nbxsync/buttons/fillnbxsync.html',
+                extra_context={'object': object},
+            )
+
+        rendered += self.render(
             'nbxsync/buttons/synchost.html',
             extra_context={
                 'can_sync': has_server_assignment and has_hostinterface_assignment and has_hostgroup_assignment,
                 'object': object,
             },
         )
+        return rendered
 
 
 template_extensions = [
