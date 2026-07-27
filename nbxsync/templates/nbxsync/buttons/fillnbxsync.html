@@ -1,0 +1,7 @@
+{% if perms.dcim.change_device %}
+<a href="#"
+   hx-get="{% url 'plugins:nbxsync:zabbixhost_sync' objtype='device' pk=object.pk %}?fill=1"
+   class="btn btn-purple">
+    <i class="mdi mdi-auto-fix"></i> {{ _("Fill NbxSync") }}
+</a>
+{% endif %}
