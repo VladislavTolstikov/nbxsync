@@ -13,12 +13,18 @@ from nbxsync.services import AutofillError, fill_nbxsync_device
 __all__ = (
     'ZabbixSyncInfoModalView',
     'TriggerHostSyncJobView',
-    'FillNbxSyncDeviceView',
     'TriggerProxySyncJobView',
     'TriggerTemplateSyncJobView',
     'TriggerProxyGroupSyncJobView',
     'TriggerMaintenanceSyncJobView',
 )
+
+
+def _htmx_redirect(request, instance):
+    target = request.headers.get('HX-Current-URL') or request.META.get('HTTP_REFERER') or instance.get_absolute_url()
+    response = HttpResponse(status=204)
+    response['HX-Redirect'] = target
+    return response
 
 
 class ZabbixSyncInfoModalView(TemplateView):
@@ -37,6 +43,26 @@ class TriggerHostSyncJobView(View):
             raise Http404(_('Unsupported object type: %(objtype)s') % {'objtype': objtype})
 
         instance = get_object_or_404(model, pk=pk)
+
+        if request.GET.get('fill') == '1':
+            if objtype != 'device':
+                raise Http404(_('Fill NbxSync supports devices only'))
+            if not request.user.has_perm('dcim.change_device'):
+                raise Http404()
+
+            try:
+                result = fill_nbxsync_device(instance)
+            except AutofillError as error:
+                messages.error(request, _('Fill NbxSync was not applied: %(error)s') % {'error': str(error)})
+            else:
+                messages.success(request, _('Fill NbxSync completed for %(name)s: %(summary)s') % {
+                    'name': str(instance),
+                    'summary': result.summary(),
+                })
+                for warning in result.warnings:
+                    messages.warning(request, warning)
+            return _htmx_redirect(request, instance)
+
         messages.success(request, _('Sync job enqueued for %(name)s') % {'name': str(instance)})
         queue = get_queue('low')
         queue.enqueue_job(
@@ -46,47 +72,7 @@ class TriggerHostSyncJobView(View):
                 timeout=9000,
             )
         )
-
-        target = request.headers.get('HX-Current-URL') or request.META.get('HTTP_REFERER') or instance.get_absolute_url()
-        resp = HttpResponse(status=204)
-        resp['HX-Redirect'] = target
-        return resp
-
-
-class FillNbxSyncDeviceView(View):
-    """Populate local NbxSync configuration for one NetBox device.
-
-    This view never contacts Zabbix and never enqueues a sync job.
-    Existing assignments are preserved; only missing approved objects are added.
-    """
-
-    def get(self, request, pk):
-        model = OBJECT_TYPE_MODEL_MAP.get('device')
-        if not model:
-            raise Http404(_('Device model is unavailable'))
-        if not request.user.has_perm('dcim.change_device'):
-            raise Http404()
-
-        instance = get_object_or_404(model, pk=pk)
-        try:
-            result = fill_nbxsync_device(instance)
-        except AutofillError as error:
-            messages.error(request, _('Fill NbxSync was not applied: %(error)s') % {'error': str(error)})
-        except Exception:
-            messages.error(request, _('Fill NbxSync failed because of an unexpected error. No Zabbix sync was started.'))
-            raise
-        else:
-            messages.success(request, _('Fill NbxSync completed for %(name)s: %(summary)s') % {
-                'name': str(instance),
-                'summary': result.summary(),
-            })
-            for warning in result.warnings:
-                messages.warning(request, warning)
-
-        target = request.headers.get('HX-Current-URL') or request.META.get('HTTP_REFERER') or instance.get_absolute_url()
-        resp = HttpResponse(status=204)
-        resp['HX-Redirect'] = target
-        return resp
+        return _htmx_redirect(request, instance)
 
 
 class TriggerProxyGroupSyncJobView(View):
@@ -101,10 +87,7 @@ class TriggerProxyGroupSyncJobView(View):
             )
         )
         messages.success(request, _('Proxygroup sync job enqueued for %(name)s') % {'name': str(instance)})
-        target = request.headers.get('HX-Current-URL') or request.META.get('HTTP_REFERER') or instance.get_absolute_url()
-        resp = HttpResponse(status=204)
-        resp['HX-Redirect'] = target
-        return resp
+        return _htmx_redirect(request, instance)
 
 
 class TriggerProxySyncJobView(View):
@@ -118,12 +101,8 @@ class TriggerProxySyncJobView(View):
                 timeout=9000,
             )
         )
-
         messages.success(request, _('Proxy sync job enqueued for %(name)s') % {'name': str(instance)})
-        target = request.headers.get('HX-Current-URL') or request.META.get('HTTP_REFERER') or instance.get_absolute_url()
-        resp = HttpResponse(status=204)
-        resp['HX-Redirect'] = target
-        return resp
+        return _htmx_redirect(request, instance)
 
 
 class TriggerTemplateSyncJobView(View):
@@ -152,9 +131,5 @@ class TriggerMaintenanceSyncJobView(View):
                 timeout=9000,
             )
         )
-
         messages.success(request, _('Maintenance window sync job enqueued for %(name)s') % {'name': str(instance)})
-        target = request.headers.get('HX-Current-URL') or request.META.get('HTTP_REFERER') or instance.get_absolute_url()
-        resp = HttpResponse(status=204)
-        resp['HX-Redirect'] = target
-        return resp
+        return _htmx_redirect(request, instance)
