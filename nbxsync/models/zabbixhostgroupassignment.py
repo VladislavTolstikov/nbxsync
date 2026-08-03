@@ -57,26 +57,27 @@ class ZabbixHostgroupAssignment(SyncInfoModel, NetBoxModel):
 
     def render(self, **context):
         context = self.get_context(**context)
+        template_value = self.zabbixhostgroup.value or self.zabbixhostgroup.name
 
         try:
-            output = render_jinja2(self.zabbixhostgroup.value, context)
+            output = render_jinja2(template_value, context)
             output = output.replace('\r\n', '\n')
             return output, True
 
         except TemplateSyntaxError as err:
-            error_msg = f"Template syntax error in '{self.zabbixhostgroup.value}': {str(err)}"
+            error_msg = f"Template syntax error in '{template_value}': {str(err)}"
             return error_msg, False
 
         except UndefinedError as err:
-            error_msg = f"Undefined variable in template '{self.zabbixhostgroup.value}': {str(err)}"
+            error_msg = f"Undefined variable in template '{template_value}': {str(err)}"
             return error_msg, False
 
         except TemplateError as err:
-            error_msg = f"Template error in '{self.zabbixhostgroup.value}': {str(err)}"
+            error_msg = f"Template error in '{template_value}': {str(err)}"
             return error_msg, False
 
         except Exception as err:
-            error_msg = f"Unexpected error rendering template '{self.zabbixhostgroup.value}': {str(err)}"
+            error_msg = f"Unexpected error rendering template '{template_value}': {str(err)}"
             return error_msg, False
 
     def is_template(self) -> bool:

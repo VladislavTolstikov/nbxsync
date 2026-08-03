@@ -62,6 +62,22 @@ class ZabbixHostgroupAssignmentTestCase(TestCase):
         self.assertTrue(success)
         self.assertIn(self.device.name, rendered)
 
+    def test_render_uses_name_when_value_is_empty(self):
+        self.group.name = 'Huawei/S6730-H48X6C'
+        self.group.value = ''
+        self.group.save()
+
+        assignment = ZabbixHostgroupAssignment.objects.create(
+            zabbixhostgroup=self.group,
+            assigned_object_type=self.device_ct,
+            assigned_object_id=self.device.id,
+        )
+
+        rendered, success = assignment.render()
+
+        self.assertTrue(success)
+        self.assertEqual(rendered, self.group.name)
+
     def test_render_template_syntax_error(self):
         self.group.value = '{% broken syntax'
         self.group.save()
