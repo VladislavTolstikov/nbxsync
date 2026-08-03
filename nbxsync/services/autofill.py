@@ -72,6 +72,11 @@ SERVER_SITE_MAP = {
     'TIRHTU': 'TZ', 'TARAZ': 'TZ', 'TZ': 'TZ',
 }
 GROUP_SITE_MAP = {**SERVER_SITE_MAP, 'STUDGORODOK': 'SG', 'SG': 'SG'}
+SITE_TEXT_MAP = {
+    'сулейменова': 'TZ',
+    'тараз': 'TZ',
+    'тирхту': 'TZ',
+}
 TARGETS_BY_SITE = {
     'MK': (Target(1, None),),
     'TK': (Target(1, 1), Target(2, 4)),
@@ -104,7 +109,7 @@ MFU_TEMPLATE_BY_MODEL = {
     'c250i': 'Konica Minolta c250i by SNMP',
     'c227': 'Konica Minolta c227 by SNMP',
     '300i': 'Konica Minolta 300i by SNMP',
-    'c300i': 'Konica Minolta c300i by SNMP',
+    'c300i': 'Konica Minolta 300i by SNMP',
     'c287': 'Konica Minolta c287 by SNMP',
     '226': 'Konica Minolta 226 by SNMP',
     'ineo 452': 'Konica Minolta ineo 452 by SNMP',
@@ -129,10 +134,19 @@ def _manufacturer_model(device) -> tuple[str, str, str, str]:
 
 def _site_key(device) -> str:
     site = getattr(device, 'site', None)
+
     for value in (getattr(site, 'slug', ''), getattr(site, 'name', '')):
-        key = re.sub(r'[^A-Z0-9]', '', str(value or '').upper())
+        raw_value = str(value or '').strip()
+
+        key = re.sub(r'[^A-Z0-9]', '', raw_value.upper())
         if key in SERVER_SITE_MAP:
             return key
+
+        normalized_value = _norm(raw_value)
+        for marker, site_key in SITE_TEXT_MAP.items():
+            if marker in normalized_value:
+                return site_key
+
     raise AutofillError(f'Unsupported site: {site or "not set"}')
 
 
