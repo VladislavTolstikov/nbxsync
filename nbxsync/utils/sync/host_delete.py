@@ -17,6 +17,19 @@ def install(HostSync):
     if getattr(HostSync, '_host_delete_installed', False):
         return
 
+    def clear_local_ids(self):
+        try:
+            self.obj.hostid = None
+            self.obj.save()
+        except ValidationError:
+            pass
+
+        ZabbixHostInterface.objects.filter(
+            assigned_object_type=self.obj.assigned_object_type,
+            assigned_object_id=self.obj.assigned_object_id,
+            zabbixserver=self.obj.zabbixserver,
+        ).update(interfaceid=None)
+
     def delete(self):
         if not self.obj.hostid:
             try:
@@ -34,6 +47,7 @@ def install(HostSync):
         if assigned_object is None:
             try:
                 self.api_object().delete([hostid])
+                clear_local_ids(self)
             except Exception as error:
                 raise RuntimeError(
                     f'Failed to delete orphaned host {hostid} from Zabbix: {error}'
@@ -63,28 +77,19 @@ def install(HostSync):
                     )
                     ZabbixMaintenanceObjectAssignment.objects.filter(
                         zabbixmaintenance__maintenanceid=maintenance_id,
+                        zabbixmaintenance__zabbixserver=self.obj.zabbixserver,
                         assigned_object_type=object_ct,
                         assigned_object_id=assigned_object.id,
                     ).delete()
                 else:
                     self.api.maintenance.delete([maintenance_id])
                     ZabbixMaintenance.objects.filter(
-                        maintenanceid=maintenance_id
+                        maintenanceid=maintenance_id,
+                        zabbixserver=self.obj.zabbixserver,
                     ).delete()
 
             self.api_object().delete([hostid])
-
-            try:
-                self.obj.hostid = None
-                self.obj.save()
-            except ValidationError:
-                pass
-
-            ZabbixHostInterface.objects.filter(
-                assigned_object_type=self.obj.assigned_object_type,
-                assigned_object_id=assigned_object.id,
-                zabbixserver=self.obj.zabbixserver,
-            ).update(interfaceid=None)
+            clear_local_ids(self)
 
             try:
                 self.obj.update_sync_info(
