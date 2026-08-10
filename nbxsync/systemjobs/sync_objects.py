@@ -19,12 +19,12 @@ class SyncObjectsJob(JobRunner):
 
     def run(self, *args, **kwargs):
         queue = get_queue('low')
+        servers = list(ZabbixServer.objects.all())
 
-        for server in ZabbixServer.objects.all():
+        for server in servers:
             prepare_server_assignments(server)
 
         synced_objects = set()
-        host_jobs = []
 
         for assignment in ZabbixServerAssignment.objects.all():
             instance = assignment.assigned_object
@@ -39,21 +39,20 @@ class SyncObjectsJob(JobRunner):
                 continue
             synced_objects.add(identity)
 
-            host_jobs.append(
-                queue.enqueue_job(
-                    queue.create_job(
-                        func='nbxsync.worker.synchost',
-                        args=[instance],
-                        timeout=9000,
-                    )
+            queue.enqueue_job(
+                queue.create_job(
+                    func='nbxsync.worker.synchost',
+                    args=[instance],
+                    timeout=9000,
                 )
             )
 
-        for server in ZabbixServer.objects.all():
+        # Reconciliation only touches tagged Zabbix hosts that have no local
+        # ZabbixServerAssignment, so it is independent from the host jobs above.
+        for server in servers:
             queue.enqueue(
                 'nbxsync.services.reconcile.reconcile_managed_hosts',
                 args=(server.pk,),
                 timeout=9000,
-                depends_on=host_jobs or None,
                 description=f'Reconcile NbxSync managed hosts (server={server.pk})',
             )
