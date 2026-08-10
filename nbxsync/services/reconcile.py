@@ -54,11 +54,25 @@ def _target_for_server(device, server_id):
     return site_key, None
 
 
+def device_is_auto_managed_on_server(device, server_id) -> bool:
+    """Return whether current autofill rules place this Device on this server."""
+    role = autofill._role(device)
+    if role in autofill.PASSIVE_ROLES or role in autofill.MANUAL_ROLES:
+        return False
+    if autofill.select_rule(device) is None:
+        return False
+    try:
+        _, target = _target_for_server(device, server_id)
+    except Exception:
+        return False
+    return target is not None
+
+
 def ensure_device_assignment_for_server(device, zabbixserver) -> bool:
-    """Create the local NbxSync config for one auto-managed Device/server pair.
+    """Create local NbxSync config for one auto-managed Device/server pair.
 
     This is the background/full-sync counterpart of the UI autofill action. It
-    accepts active, staged and planned devices, while the UI button can remain
+    accepts active, staged and planned devices, while the UI button remains
     active-only.
     """
     if status_slug(device) not in DEVICE_SYNC_STATUSES:
@@ -70,17 +84,11 @@ def ensure_device_assignment_for_server(device, zabbixserver) -> bool:
     if primary_ip is None:
         return False
 
-    role = autofill._role(device)
-    if role in autofill.PASSIVE_ROLES or role in autofill.MANUAL_ROLES:
+    if not device_is_auto_managed_on_server(device, zabbixserver.pk):
         return False
 
     rule = autofill.select_rule(device)
-    if rule is None:
-        return False
-
     site_key, target = _target_for_server(device, zabbixserver.pk)
-    if target is None:
-        return False
 
     templates = {
         row.name: row
@@ -217,9 +225,10 @@ def reconcile_managed_hosts(server_id: int) -> None:
             should_delete = owner is None
 
             if owner is not None and owner._meta.model_name == 'device':
-                should_delete = desired_host_status(owner) == ZabbixHostStatus.DELETED
-                if not should_delete and autofill._role(owner) in autofill.PASSIVE_ROLES:
-                    should_delete = True
+                should_delete = (
+                    desired_host_status(owner) == ZabbixHostStatus.DELETED
+                    or not device_is_auto_managed_on_server(owner, server_id)
+                )
 
             if not should_delete:
                 logger.warning(
