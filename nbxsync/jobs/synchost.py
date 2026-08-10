@@ -23,13 +23,28 @@ class SyncHostJob:
         )
 
         zabbix_status = desired_host_status(self.instance)
+        errors = []
 
+        # One NetBox object may be assigned to several Zabbix servers. A failure
+        # on one server must not prevent the remaining servers from being tried.
         for assignment in zabbixserver_assignments:
-            if zabbix_status == ZabbixHostStatus.DELETED:
-                self.delete_host(assignment)
-            else:
-                all_objects = self.sync_host(assignment)
-                self.verify_hostinterfaces(assignment, all_objects)
+            try:
+                if zabbix_status == ZabbixHostStatus.DELETED:
+                    self.delete_host(assignment)
+                else:
+                    all_objects = self.sync_host(assignment)
+                    self.verify_hostinterfaces(assignment, all_objects)
+            except Exception as error:
+                errors.append(
+                    f'assignment={assignment.pk} '
+                    f'server={assignment.zabbixserver_id}: {error}'
+                )
+
+        if errors:
+            raise RuntimeError(
+                'Host synchronization completed with errors on one or more '
+                'Zabbix servers: ' + ' | '.join(errors)
+            )
 
     def delete_host(self, assignment):
         safe_delete(HostSync, assignment)
