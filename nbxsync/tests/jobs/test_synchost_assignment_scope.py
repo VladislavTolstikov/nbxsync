@@ -51,10 +51,28 @@ class SyncHostAssignmentScopeTests(TestCase):
         )
         self.assertEqual(mock_verify.call_count, 2)
 
+    @patch.object(SyncHostJob, 'verify_hostinterfaces')
+    @patch.object(SyncHostJob, 'sync_host')
+    def test_failure_on_one_server_does_not_skip_the_other(self, mock_sync_host, mock_verify):
+        mock_sync_host.side_effect = [RuntimeError('first server failed'), {}]
+
+        with self.assertRaises(RuntimeError):
+            SyncHostJob(instance=self.device).run()
+
+        self.assertEqual(mock_sync_host.call_count, 2)
+        self.assertEqual(mock_verify.call_count, 1)
+
+    @patch('nbxsync.worker.global_sync.ensure_device_assignments', return_value=2)
     @patch('nbxsync.worker.global_sync.SyncHostJob.run')
     @patch('nbxsync.worker.global_sync.SyncHostJob.__init__', return_value=None)
-    def test_syncall_trigger_assignment_syncs_all_servers(self, mock_init, mock_run):
+    def test_syncall_trigger_assignment_syncs_all_servers(
+        self,
+        mock_init,
+        mock_run,
+        mock_prepare,
+    ):
         synchost_assignment(self.assignment1.pk)
 
+        mock_prepare.assert_called_once_with(self.device)
         mock_init.assert_called_once_with(instance=self.device)
         mock_run.assert_called_once_with()
