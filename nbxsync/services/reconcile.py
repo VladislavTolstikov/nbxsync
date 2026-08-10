@@ -13,7 +13,11 @@ from nbxsync.models import (
     ZabbixTemplate,
 )
 from nbxsync.services import autofill
-from nbxsync.settings import get_plugin_settings
+from nbxsync.services.host_policy import (
+    DEVICE_SYNC_STATUSES,
+    desired_host_status,
+    status_slug,
+)
 from nbxsync.utils import ZabbixConnection
 
 
@@ -21,35 +25,7 @@ logger = logging.getLogger(__name__)
 
 OWNER_TYPE_TAG = 'nbxsync.object_type_id'
 OWNER_ID_TAG = 'nbxsync.object_id'
-DEVICE_SYNC_STATUSES = frozenset({'active', 'staged', 'planned'})
 HOST_OBJECT_MODELS = frozenset({'device', 'virtualmachine', 'virtualdevicecontext'})
-
-
-def status_slug(instance) -> str:
-    status = getattr(instance, 'status', None)
-    return str(getattr(status, 'slug', None) or status or '').strip().lower()
-
-
-def desired_host_status(instance):
-    """Return the desired Zabbix host state for a NetBox object.
-
-    Device policy is intentionally strict: active is enabled, staged/planned are
-    disabled, and every other (including custom) status means delete.
-    Non-device objects continue to use the configured status mapping.
-    """
-    object_type = instance._meta.model_name
-    slug = status_slug(instance)
-
-    if object_type == 'device':
-        if slug == 'active':
-            return ZabbixHostStatus.ENABLED
-        if slug in {'staged', 'planned'}:
-            return ZabbixHostStatus.DISABLED
-        return ZabbixHostStatus.DELETED
-
-    pluginsettings = get_plugin_settings()
-    status_mapping = getattr(pluginsettings.statusmapping, object_type, {})
-    return status_mapping.get(getattr(instance, 'status', None))
 
 
 def _target_for_server(device, server_id):
@@ -61,8 +37,13 @@ def _target_for_server(device, server_id):
     return site_key, None
 
 
-def device_is_auto_managed_on_server(device, server_id) -> bool:
-    """Return whether current autofill rules place this Device on this server."""
+def device_is_auto_managed_on_server(device, server_id):
+    """Return True/False when management scope is known, otherwise None.
+
+    Reconciliation must fail safe. A transient or unsupported site mapping must
+    never be interpreted as proof that an existing managed host should be
+    deleted.
+    """
     role = autofill._role(device)
     if role in autofill.PASSIVE_ROLES or role in autofill.MANUAL_ROLES:
         return False
@@ -70,8 +51,14 @@ def device_is_auto_managed_on_server(device, server_id) -> bool:
         return False
     try:
         _, target = _target_for_server(device, server_id)
-    except Exception:
-        return False
+    except Exception as error:
+        logger.warning(
+            'Unable to evaluate autofill target for device=%s server=%s: %s',
+            device,
+            server_id,
+            error,
+        )
+        return None
     return target is not None
 
 
@@ -91,7 +78,7 @@ def ensure_device_assignment_for_server(device, zabbixserver) -> bool:
     if primary_ip is None:
         return False
 
-    if not device_is_auto_managed_on_server(device, zabbixserver.pk):
+    if device_is_auto_managed_on_server(device, zabbixserver.pk) is not True:
         return False
 
     rule = autofill.select_rule(device)
@@ -374,13 +361,11 @@ def reconcile_managed_hosts(server_id: int) -> None:
                     )
                     continue
                 elif owner_model_name == 'device':
-                    # Autofill-capable Devices may have failed preflight (missing
-                    # template/proxy/IP). Keep the existing host for recovery only
-                    # when current rules still place it on this Zabbix server.
-                    should_delete = not device_is_auto_managed_on_server(
-                        owner,
-                        server_id,
-                    )
+                    # Only explicit proof that the Device is outside the approved
+                    # autofill scope may delete a live orphan. Unknown/evaluation
+                    # failures are kept for safety.
+                    managed = device_is_auto_managed_on_server(owner, server_id)
+                    should_delete = managed is False
                 else:
                     # VMs/VDCs have no autofill recovery path. Without an
                     # assignment the tagged Zabbix host is an orphan.
