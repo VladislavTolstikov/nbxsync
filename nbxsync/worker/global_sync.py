@@ -18,6 +18,8 @@ from nbxsync.models import (
     ZabbixHostgroup,
     ZabbixHostgroupAssignment,
 )
+from nbxsync.services import autofill
+from nbxsync.services.reconcile import ensure_device_assignments
 
 logger = logging.getLogger(__name__)
 
@@ -106,10 +108,35 @@ def synchost_assignment(assignment_id: int) -> None:
         obj.name,
     )
 
+    # Sync All uses one assignment only as the trigger. Before enumerating the
+    # object's assignments, restore every approved autofill target for Devices so
+    # a missing secondary-server assignment cannot silently prevent fan-out.
+    if obj._meta.model_name == 'device':
+        try:
+            target_count = ensure_device_assignments(obj)
+            if target_count:
+                logger.info(
+                    'HostSync prepared %s autofill targets for device=%s',
+                    target_count,
+                    obj.name,
+                )
+        except autofill.AutofillError as error:
+            logger.warning(
+                'HostSync could not prepare all autofill targets for device=%s: %s; '
+                'continuing with existing assignments',
+                obj.name,
+                error,
+            )
+        except Exception:
+            logger.exception(
+                'HostSync unexpected autofill preparation failure for device=%s; '
+                'continuing with existing assignments',
+                obj.name,
+            )
+
     try:
-        # The assignment is only the trigger/reference used by Sync All to find
-        # the NetBox object. Once selected, SyncHostJob processes every
-        # ZabbixServerAssignment belonging to that object.
+        # Once selected, SyncHostJob processes every ZabbixServerAssignment
+        # belonging to this NetBox object.
         worker = SyncHostJob(instance=obj)
         worker.run()
     except Exception as e:
@@ -121,4 +148,3 @@ def synchost_assignment(assignment_id: int) -> None:
             e,
         )
         raise
-
