@@ -7,6 +7,9 @@ from nbxsync.services.reconcile import prepare_server_assignments
 from nbxsync.settings import get_plugin_settings
 
 
+HOST_OBJECT_MODELS = {'device', 'virtualmachine', 'virtualdevicecontext'}
+
+
 def GetSyncInterval():
     pluginsettings = get_plugin_settings()
     return pluginsettings.backgroundsync.objects.interval
@@ -29,6 +32,8 @@ class SyncObjectsJob(JobRunner):
         for assignment in ZabbixServerAssignment.objects.all():
             instance = assignment.assigned_object
             if instance is None:
+                continue
+            if instance._meta.model_name not in HOST_OBJECT_MODELS:
                 continue
 
             identity = (
