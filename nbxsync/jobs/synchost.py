@@ -2,7 +2,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from nbxsync.choices.zabbixstatus import ZabbixHostStatus
 from nbxsync.models import ZabbixServerAssignment
-from nbxsync.services.reconcile import desired_host_status
+from nbxsync.services.host_policy import desired_host_status
 from nbxsync.utils import get_assigned_zabbixobjects
 from nbxsync.utils.sync import HostGroupSync, HostInterfaceSync, HostSync, ProxyGroupSync, ProxySync, run_zabbix_operation
 from nbxsync.utils.sync.safe_delete import safe_delete
