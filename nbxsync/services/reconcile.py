@@ -5,7 +5,13 @@ from django.contrib.contenttypes.models import ContentType
 from dcim.models import Device
 
 from nbxsync.choices.zabbixstatus import ZabbixHostStatus
-from nbxsync.models import ZabbixProxy, ZabbixServer, ZabbixServerAssignment, ZabbixTemplate
+from nbxsync.models import (
+    ZabbixHostInterface,
+    ZabbixProxy,
+    ZabbixServer,
+    ZabbixServerAssignment,
+    ZabbixTemplate,
+)
 from nbxsync.services import autofill
 from nbxsync.settings import get_plugin_settings
 from nbxsync.utils import ZabbixConnection
@@ -179,12 +185,23 @@ def _resolve_owner(content_type_id, object_id):
         return None
 
 
+def _clear_interface_ids(zabbixserver, owner_type_id, owner_id):
+    try:
+        ZabbixHostInterface.objects.filter(
+            zabbixserver=zabbixserver,
+            assigned_object_type_id=int(owner_type_id),
+            assigned_object_id=int(owner_id),
+        ).update(interfaceid=None)
+    except (TypeError, ValueError):
+        return
+
+
 def reconcile_managed_hosts(server_id: int) -> None:
     """Clean Zabbix hosts owned by NbxSync even when their assignment is gone.
 
     Ownership is accepted only when both identity tags are present. Hosts without
     these tags are never touched. Hosts with a current assignment are left to the
-    normal per-host job so safe_delete can clean local state as well.
+    normal per-host job so HostSync.delete can clean local state as well.
     """
     try:
         zabbixserver = ZabbixServer.objects.get(pk=server_id)
@@ -243,6 +260,7 @@ def reconcile_managed_hosts(server_id: int) -> None:
                 continue
 
             api.host.delete([hostid])
+            _clear_interface_ids(zabbixserver, owner_type_id, owner_id)
             deleted += 1
             logger.info(
                 'Reconcile deleted NbxSync hostid=%s host=%s owner_type_id=%s owner_id=%s',
