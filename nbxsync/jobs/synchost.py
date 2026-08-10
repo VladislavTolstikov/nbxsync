@@ -2,7 +2,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from nbxsync.choices.zabbixstatus import ZabbixHostStatus
 from nbxsync.models import ZabbixServerAssignment
-from nbxsync.settings import get_plugin_settings
+from nbxsync.services.reconcile import desired_host_status
 from nbxsync.utils import get_assigned_zabbixobjects
 from nbxsync.utils.sync import HostGroupSync, HostInterfaceSync, HostSync, ProxyGroupSync, ProxySync, run_zabbix_operation
 from nbxsync.utils.sync.safe_delete import safe_delete
@@ -22,11 +22,7 @@ class SyncHostJob:
             assigned_object_id=self.instance.pk,
         )
 
-        status = self.instance.status
-        object_type = self.instance._meta.model_name
-        pluginsettings = get_plugin_settings()
-        status_mapping = getattr(pluginsettings.statusmapping, object_type, {})
-        zabbix_status = status_mapping.get(status)
+        zabbix_status = desired_host_status(self.instance)
 
         for assignment in zabbixserver_assignments:
             if zabbix_status == ZabbixHostStatus.DELETED:
