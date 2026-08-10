@@ -11,10 +11,11 @@ from nbxsync.services.reconcile import desired_host_status, prepare_server_assig
 logger = logging.getLogger(__name__)
 
 LOW_QUEUE_NAME = 'low'
+HOST_OBJECT_MODELS = {'device', 'virtualmachine', 'virtualdevicecontext'}
 
 
 def _iter_filtered_assignments(zabbixserver) -> Iterable[ZabbixServerAssignment]:
-    """Yield every assignment that needs reconciliation on this server.
+    """Yield every host assignment that needs reconciliation on this server.
 
     Deletion candidates are yielded even without an IP. Active/staged/planned
     hosts still require an address before a normal host sync is attempted.
@@ -25,6 +26,8 @@ def _iter_filtered_assignments(zabbixserver) -> Iterable[ZabbixServerAssignment]
     for assignment in qs.iterator():
         obj = assignment.assigned_object
         if obj is None:
+            continue
+        if obj._meta.model_name not in HOST_OBJECT_MODELS:
             continue
 
         desired = desired_host_status(obj)
