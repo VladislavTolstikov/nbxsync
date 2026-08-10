@@ -8,6 +8,7 @@ from utilities.testing import create_test_device
 
 from nbxsync.jobs.synchost import SyncHostJob
 from nbxsync.models import ZabbixServer, ZabbixServerAssignment
+from nbxsync.worker.global_sync import synchost_assignment
 
 
 class SyncHostAssignmentScopeTests(TestCase):
@@ -37,7 +38,7 @@ class SyncHostAssignmentScopeTests(TestCase):
 
     @patch.object(SyncHostJob, 'verify_hostinterfaces')
     @patch.object(SyncHostJob, 'sync_host', return_value={})
-    def test_unscoped_sync_updates_all_server_assignments(self, mock_sync_host, mock_verify):
+    def test_sync_host_updates_all_server_assignments(self, mock_sync_host, mock_verify):
         SyncHostJob(instance=self.device).run()
 
         self.assertEqual(mock_sync_host.call_count, 2)
@@ -49,3 +50,11 @@ class SyncHostAssignmentScopeTests(TestCase):
             {self.assignment1.pk, self.assignment2.pk},
         )
         self.assertEqual(mock_verify.call_count, 2)
+
+    @patch('nbxsync.worker.global_sync.SyncHostJob.run')
+    @patch('nbxsync.worker.global_sync.SyncHostJob.__init__', return_value=None)
+    def test_syncall_trigger_assignment_does_not_limit_servers(self, mock_init, mock_run):
+        synchost_assignment(self.assignment1.pk)
+
+        mock_init.assert_called_once_with(instance=self.device)
+        mock_run.assert_called_once_with()
