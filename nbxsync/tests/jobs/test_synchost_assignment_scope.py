@@ -53,7 +53,7 @@ class SyncHostAssignmentScopeTests(TestCase):
 
     @patch('nbxsync.worker.global_sync.SyncHostJob.run')
     @patch('nbxsync.worker.global_sync.SyncHostJob.__init__', return_value=None)
-    def test_syncall_trigger_assignment_does_not_limit_servers(self, mock_init, mock_run):
+    def test_syncall_trigger_assignment_syncs_all_servers(self, mock_init, mock_run):
         synchost_assignment(self.assignment1.pk)
 
         mock_init.assert_called_once_with(instance=self.device)
