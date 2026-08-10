@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 OWNER_TYPE_TAG = 'nbxsync.object_type_id'
 OWNER_ID_TAG = 'nbxsync.object_id'
 DEVICE_SYNC_STATUSES = frozenset({'active', 'staged', 'planned'})
+HOST_OBJECT_MODELS = frozenset({'device', 'virtualmachine', 'virtualdevicecontext'})
 
 
 def status_slug(instance) -> str:
@@ -174,34 +175,46 @@ def _tag_map(host):
     }
 
 
+def _parse_owner_ids(owner_type_value, owner_id_value):
+    try:
+        owner_type_id = int(owner_type_value)
+        owner_id = int(owner_id_value)
+    except (TypeError, ValueError):
+        return None
+
+    if owner_type_id <= 0 or owner_id <= 0:
+        return None
+    return owner_type_id, owner_id
+
+
 def _resolve_owner(content_type_id, object_id):
     try:
-        content_type = ContentType.objects.get(pk=int(content_type_id))
-        model = content_type.model_class()
-        if model is None:
-            return None
-        return model._default_manager.filter(pk=int(object_id)).first()
-    except (TypeError, ValueError, ContentType.DoesNotExist):
-        return None
+        content_type = ContentType.objects.get(pk=content_type_id)
+    except ContentType.DoesNotExist:
+        return None, False
+
+    model = content_type.model_class()
+    if model is None:
+        return None, False
+
+    return model._default_manager.filter(pk=object_id).first(), True
 
 
 def _clear_interface_ids(zabbixserver, owner_type_id, owner_id):
-    try:
-        ZabbixHostInterface.objects.filter(
-            zabbixserver=zabbixserver,
-            assigned_object_type_id=int(owner_type_id),
-            assigned_object_id=int(owner_id),
-        ).update(interfaceid=None)
-    except (TypeError, ValueError):
-        return
+    ZabbixHostInterface.objects.filter(
+        zabbixserver=zabbixserver,
+        assigned_object_type_id=owner_type_id,
+        assigned_object_id=owner_id,
+    ).update(interfaceid=None)
 
 
 def reconcile_managed_hosts(server_id: int) -> None:
     """Clean Zabbix hosts owned by NbxSync even when their assignment is gone.
 
-    Ownership is accepted only when both identity tags are present. Hosts without
-    these tags are never touched. Hosts with a current assignment are left to the
-    normal per-host job so HostSync.delete can clean local state as well.
+    Ownership is accepted only when both identity tags contain valid numeric IDs.
+    Hosts without valid ownership tags are never touched. Hosts with a current
+    assignment are left to the normal per-host job so HostSync.delete can clean
+    local state as well.
     """
     try:
         zabbixserver = ZabbixServer.objects.get(pk=server_id)
@@ -218,17 +231,28 @@ def reconcile_managed_hosts(server_id: int) -> None:
 
         for host in hosts:
             tags = _tag_map(host)
-            owner_type_id = tags.get(OWNER_TYPE_TAG)
-            owner_id = tags.get(OWNER_ID_TAG)
+            owner_type_value = tags.get(OWNER_TYPE_TAG)
+            owner_id_value = tags.get(OWNER_ID_TAG)
 
-            if owner_type_id is None and owner_id is None:
+            if owner_type_value is None and owner_id_value is None:
                 continue
-            if owner_type_id is None or owner_id is None:
+            if owner_type_value is None or owner_id_value is None:
                 logger.warning(
                     'Reconcile ignored hostid=%s with incomplete NbxSync owner tags',
                     host.get('hostid'),
                 )
                 continue
+
+            owner_ids = _parse_owner_ids(owner_type_value, owner_id_value)
+            if owner_ids is None:
+                logger.warning(
+                    'Reconcile ignored hostid=%s with invalid NbxSync owner tags type=%r id=%r',
+                    host.get('hostid'),
+                    owner_type_value,
+                    owner_id_value,
+                )
+                continue
+            owner_type_id, owner_id = owner_ids
 
             assignment = ZabbixServerAssignment.objects.filter(
                 zabbixserver=zabbixserver,
@@ -238,14 +262,34 @@ def reconcile_managed_hosts(server_id: int) -> None:
             if assignment is not None:
                 continue
 
-            owner = _resolve_owner(owner_type_id, owner_id)
-            should_delete = owner is None
-
-            if owner is not None and owner._meta.model_name == 'device':
-                should_delete = (
-                    desired_host_status(owner) == ZabbixHostStatus.DELETED
-                    or not device_is_auto_managed_on_server(owner, server_id)
+            owner, owner_type_valid = _resolve_owner(owner_type_id, owner_id)
+            if not owner_type_valid:
+                logger.warning(
+                    'Reconcile ignored hostid=%s: ContentType id=%s cannot be resolved',
+                    host.get('hostid'),
+                    owner_type_id,
                 )
+                continue
+
+            should_delete = owner is None
+            if owner is not None:
+                model_name = owner._meta.model_name
+                if model_name == 'device':
+                    should_delete = (
+                        desired_host_status(owner) == ZabbixHostStatus.DELETED
+                        or not device_is_auto_managed_on_server(owner, server_id)
+                    )
+                elif model_name in HOST_OBJECT_MODELS:
+                    # VMs/VDCs have no autofill recovery path. Without an
+                    # assignment the tagged Zabbix host is an orphan.
+                    should_delete = True
+                else:
+                    logger.warning(
+                        'Reconcile ignored hostid=%s: tagged owner type %s is not a host object',
+                        host.get('hostid'),
+                        model_name,
+                    )
+                    continue
 
             if not should_delete:
                 logger.warning(
