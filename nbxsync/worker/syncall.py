@@ -98,25 +98,24 @@ def syncall(zabbixserver) -> None:
         server_id,
     )
 
-    host_jobs = []
     for assignment in assignments:
         device_name = str(assignment.assigned_object)
-        host_jobs.append(
-            queue.enqueue(
-                'nbxsync.worker.synchost_assignment',
-                args=(assignment.pk,),
-                timeout=9000,
-                job_id=f'synchost_{server_id}_{assignment.pk}',
-                depends_on=j4,
-                description=f'Sync host {device_name} (server={server_id})',
-            )
+        queue.enqueue(
+            'nbxsync.worker.synchost_assignment',
+            args=(assignment.pk,),
+            timeout=9000,
+            job_id=f'synchost_{server_id}_{assignment.pk}',
+            depends_on=j4,
+            description=f'Sync host {device_name} (server={server_id})',
         )
 
+    # Reconciliation only handles tagged Zabbix hosts with no local assignment,
+    # so it does not need to wait for every per-host job.
     queue.enqueue(
         'nbxsync.services.reconcile.reconcile_managed_hosts',
         args=(server_id,),
         timeout=9000,
-        depends_on=host_jobs or j4,
+        depends_on=j4,
         description=f'Reconcile NbxSync managed hosts (server={server_id})',
     )
 
