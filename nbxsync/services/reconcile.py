@@ -191,13 +191,13 @@ def _resolve_owner(content_type_id, object_id):
     try:
         content_type = ContentType.objects.get(pk=content_type_id)
     except ContentType.DoesNotExist:
-        return None, False
+        return None, None, False
 
     model = content_type.model_class()
     if model is None:
-        return None, False
+        return None, content_type.model, False
 
-    return model._default_manager.filter(pk=object_id).first(), True
+    return model._default_manager.filter(pk=object_id).first(), model._meta.model_name, True
 
 
 def _clear_interface_ids(zabbixserver, owner_type_id, owner_id):
@@ -267,12 +267,22 @@ def reconcile_managed_hosts(server_id: int) -> None:
             if not hostid:
                 continue
 
-            owner, owner_type_valid = _resolve_owner(owner_type_id, owner_id)
+            owner, owner_model_name, owner_type_valid = _resolve_owner(
+                owner_type_id,
+                owner_id,
+            )
             if not owner_type_valid:
                 logger.warning(
-                    'Reconcile ignored hostid=%s: ContentType id=%s cannot be resolved',
+                    'Reconcile ignored hostid=%s: ContentType id=%s cannot be safely resolved',
                     hostid,
                     owner_type_id,
+                )
+                continue
+            if owner_model_name not in HOST_OBJECT_MODELS:
+                logger.warning(
+                    'Reconcile ignored hostid=%s: tagged owner type %s is not a host object',
+                    hostid,
+                    owner_model_name,
                 )
                 continue
 
@@ -287,26 +297,13 @@ def reconcile_managed_hosts(server_id: int) -> None:
                 and str(assignment.hostid) == str(hostid)
             )
 
-            model_name = owner._meta.model_name if owner is not None else None
-            if (
-                owner is not None
-                and model_name in HOST_OBJECT_MODELS
-                and assignment_matches_host
-            ):
+            if owner is not None and assignment_matches_host:
                 # The ordinary per-host job can safely target this exact host.
                 continue
 
             should_delete = owner is None
 
             if owner is not None:
-                if model_name not in HOST_OBJECT_MODELS:
-                    logger.warning(
-                        'Reconcile ignored hostid=%s: tagged owner type %s is not a host object',
-                        hostid,
-                        model_name,
-                    )
-                    continue
-
                 desired = desired_host_status(owner)
                 if desired == ZabbixHostStatus.DELETED:
                     # If hostid is missing/stale on the assignment, the normal
@@ -324,7 +321,7 @@ def reconcile_managed_hosts(server_id: int) -> None:
                         assignment.hostid,
                     )
                     continue
-                elif model_name == 'device':
+                elif owner_model_name == 'device':
                     # Autofill-capable Devices may have failed preflight (missing
                     # template/proxy/IP). Keep the existing host for recovery only
                     # when current rules still place it on this Zabbix server.
