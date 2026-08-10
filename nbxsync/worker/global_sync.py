@@ -107,7 +107,7 @@ def synchost_assignment(assignment_id: int) -> None:
     )
 
     try:
-        worker = SyncHostJob(instance=obj)
+        worker = SyncHostJob(instance=obj, assignment_id=assignment_id)
         worker.run()
     except Exception as e:
         logger.error(
