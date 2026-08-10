@@ -208,13 +208,22 @@ def _clear_interface_ids(zabbixserver, owner_type_id, owner_id):
     ).update(interfaceid=None)
 
 
-def reconcile_managed_hosts(server_id: int) -> None:
-    """Clean Zabbix hosts owned by NbxSync even when their assignment is gone.
+def _clear_matching_assignment_hostid(assignment, hostid):
+    if assignment is None or assignment.hostid is None:
+        return
+    if str(assignment.hostid) != str(hostid):
+        return
+    assignment.hostid = None
+    assignment.save(update_fields=['hostid'])
 
-    Ownership is accepted only when both identity tags contain valid numeric IDs.
-    Hosts without valid ownership tags are never touched. Hosts with a current
-    assignment are left to the normal per-host job so HostSync.delete can clean
-    local state as well.
+
+def reconcile_managed_hosts(server_id: int) -> None:
+    """Reconcile Zabbix hosts carrying NbxSync ownership tags.
+
+    Hosts without valid ownership tags are never touched. When a local assignment
+    points at the same host ID and its NetBox owner still exists, the normal host
+    sync job remains responsible for enable/disable/delete. Reconciliation only
+    handles orphans and stale/missing host IDs that the normal job cannot target.
     """
     try:
         zabbixserver = ZabbixServer.objects.get(pk=server_id)
@@ -254,57 +263,91 @@ def reconcile_managed_hosts(server_id: int) -> None:
                 continue
             owner_type_id, owner_id = owner_ids
 
-            assignment = ZabbixServerAssignment.objects.filter(
-                zabbixserver=zabbixserver,
-                assigned_object_type_id=owner_type_id,
-                assigned_object_id=owner_id,
-            ).first()
-            if assignment is not None:
+            hostid = host.get('hostid')
+            if not hostid:
                 continue
 
             owner, owner_type_valid = _resolve_owner(owner_type_id, owner_id)
             if not owner_type_valid:
                 logger.warning(
                     'Reconcile ignored hostid=%s: ContentType id=%s cannot be resolved',
-                    host.get('hostid'),
+                    hostid,
                     owner_type_id,
                 )
                 continue
 
+            assignment = ZabbixServerAssignment.objects.filter(
+                zabbixserver=zabbixserver,
+                assigned_object_type_id=owner_type_id,
+                assigned_object_id=owner_id,
+            ).first()
+            assignment_matches_host = bool(
+                assignment is not None
+                and assignment.hostid is not None
+                and str(assignment.hostid) == str(hostid)
+            )
+
+            model_name = owner._meta.model_name if owner is not None else None
+            if (
+                owner is not None
+                and model_name in HOST_OBJECT_MODELS
+                and assignment_matches_host
+            ):
+                # The ordinary per-host job can safely target this exact host.
+                continue
+
             should_delete = owner is None
+
             if owner is not None:
-                model_name = owner._meta.model_name
-                if model_name == 'device':
-                    should_delete = (
-                        desired_host_status(owner) == ZabbixHostStatus.DELETED
-                        or not device_is_auto_managed_on_server(owner, server_id)
-                    )
-                elif model_name in HOST_OBJECT_MODELS:
-                    # VMs/VDCs have no autofill recovery path. Without an
-                    # assignment the tagged Zabbix host is an orphan.
-                    should_delete = True
-                else:
+                if model_name not in HOST_OBJECT_MODELS:
                     logger.warning(
                         'Reconcile ignored hostid=%s: tagged owner type %s is not a host object',
-                        host.get('hostid'),
+                        hostid,
                         model_name,
                     )
                     continue
 
+                desired = desired_host_status(owner)
+                if desired == ZabbixHostStatus.DELETED:
+                    # If hostid is missing/stale on the assignment, the normal
+                    # delete path cannot reach this tagged host, so delete here.
+                    should_delete = True
+                elif assignment is not None:
+                    # A live host with an assignment but a missing/mismatched
+                    # hostid is preserved. Identity guard / regular sync can heal
+                    # the local ID without destructive guessing.
+                    logger.warning(
+                        'Reconcile kept hostid=%s (%s): assignment=%s has hostid=%s',
+                        hostid,
+                        host.get('host'),
+                        assignment.pk,
+                        assignment.hostid,
+                    )
+                    continue
+                elif model_name == 'device':
+                    # Autofill-capable Devices may have failed preflight (missing
+                    # template/proxy/IP). Keep the existing host for recovery only
+                    # when current rules still place it on this Zabbix server.
+                    should_delete = not device_is_auto_managed_on_server(
+                        owner,
+                        server_id,
+                    )
+                else:
+                    # VMs/VDCs have no autofill recovery path. Without an
+                    # assignment the tagged Zabbix host is an orphan.
+                    should_delete = True
+
             if not should_delete:
                 logger.warning(
                     'Reconcile kept managed hostid=%s (%s): owner exists but no server assignment',
-                    host.get('hostid'),
+                    hostid,
                     host.get('host'),
                 )
                 continue
 
-            hostid = host.get('hostid')
-            if not hostid:
-                continue
-
             api.host.delete([hostid])
             _clear_interface_ids(zabbixserver, owner_type_id, owner_id)
+            _clear_matching_assignment_hostid(assignment, hostid)
             deleted += 1
             logger.info(
                 'Reconcile deleted NbxSync hostid=%s host=%s owner_type_id=%s owner_id=%s',
