@@ -108,8 +108,8 @@ def synchost_assignment(assignment_id: int) -> None:
 
     try:
         # The assignment is only the trigger/reference used by Sync All to find
-        # the NetBox object. Once the object is selected, SyncHostJob must process
-        # every ZabbixServerAssignment belonging to it.
+        # the NetBox object. Once selected, SyncHostJob processes every
+        # ZabbixServerAssignment belonging to that object.
         worker = SyncHostJob(instance=obj)
         worker.run()
     except Exception as e:
