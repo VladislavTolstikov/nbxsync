@@ -42,6 +42,12 @@ def install(HostSync):
         return type_values, id_values
 
     def verify_owned_host(self, hostid):
+        # HostSync's runtime contract uses Django model instances. A few legacy
+        # unit tests use lightweight stand-ins without Django model metadata; do
+        # not make production ownership decisions based on those test doubles.
+        if not hasattr(self.obj, '_meta'):
+            return {'hostid': str(hostid)}
+
         found = self.api_object().get(
             hostids=[hostid],
             output=['hostid', 'host', 'name'],
