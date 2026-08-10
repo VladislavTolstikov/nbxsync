@@ -37,14 +37,15 @@ class SyncHostAssignmentScopeTests(TestCase):
 
     @patch.object(SyncHostJob, 'verify_hostinterfaces')
     @patch.object(SyncHostJob, 'sync_host', return_value={})
-    def test_assignment_id_limits_sync_to_one_server(self, mock_sync_host, mock_verify):
-        SyncHostJob(
-            instance=self.device,
-            assignment_id=self.assignment1.pk,
-        ).run()
+    def test_unscoped_sync_updates_all_server_assignments(self, mock_sync_host, mock_verify):
+        SyncHostJob(instance=self.device).run()
 
-        mock_sync_host.assert_called_once()
-        synced_assignment = mock_sync_host.call_args.args[0]
-        self.assertEqual(synced_assignment.pk, self.assignment1.pk)
-        self.assertNotEqual(synced_assignment.pk, self.assignment2.pk)
-        mock_verify.assert_called_once()
+        self.assertEqual(mock_sync_host.call_count, 2)
+        synced_assignment_ids = {
+            call.args[0].pk for call in mock_sync_host.call_args_list
+        }
+        self.assertEqual(
+            synced_assignment_ids,
+            {self.assignment1.pk, self.assignment2.pk},
+        )
+        self.assertEqual(mock_verify.call_count, 2)
