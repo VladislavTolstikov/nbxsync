@@ -14,7 +14,6 @@ __all__ = ('SyncHostJob',)
 class SyncHostJob:
     def __init__(self, **kwargs):
         self.instance = kwargs.get('instance')
-        self.assignment_id = kwargs.get('assignment_id')
 
     def run(self):
         object_ct = ContentType.objects.get_for_model(self.instance)
@@ -22,10 +21,6 @@ class SyncHostJob:
             assigned_object_type=object_ct,
             assigned_object_id=self.instance.pk,
         )
-        if self.assignment_id is not None:
-            zabbixserver_assignments = zabbixserver_assignments.filter(
-                pk=self.assignment_id
-            )
 
         zabbix_status = desired_host_status(self.instance)
 
