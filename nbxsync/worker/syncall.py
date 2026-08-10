@@ -15,8 +15,10 @@ HOST_OBJECT_MODELS = {'device', 'virtualmachine', 'virtualdevicecontext'}
 
 
 def _iter_filtered_assignments(zabbixserver) -> Iterable[ZabbixServerAssignment]:
-    """Yield every host assignment that needs reconciliation on this server.
+    """Yield every host assignment that should trigger object sync.
 
+    The selected assignment belongs to the Sync All server, but the downstream
+    object job synchronizes the NetBox object to all of its Zabbix assignments.
     Deletion candidates are yielded even without an IP. Active/staged/planned
     hosts still require an address before a normal host sync is attempted.
     """
@@ -49,7 +51,7 @@ def _iter_filtered_assignments(zabbixserver) -> Iterable[ZabbixServerAssignment]
 
 
 def syncall(zabbixserver) -> None:
-    """Run server-wide reconciliation and then per-host synchronization."""
+    """Prepare one server, then sync selected objects to all assigned servers."""
     job = get_current_job()
     queue = get_queue(LOW_QUEUE_NAME)
     server_id = zabbixserver.pk
@@ -96,7 +98,7 @@ def syncall(zabbixserver) -> None:
 
     assignments = list(_iter_filtered_assignments(zabbixserver))
     logger.info(
-        'SyncAll dispatcher: %s assignments selected for per-host sync (server=%s)',
+        'SyncAll dispatcher: %s object triggers selected (server=%s)',
         len(assignments),
         server_id,
     )
@@ -109,11 +111,11 @@ def syncall(zabbixserver) -> None:
             timeout=9000,
             job_id=f'synchost_{server_id}_{assignment.pk}',
             depends_on=j4,
-            description=f'Sync host {device_name} (server={server_id})',
+            description=f'Sync host {device_name} to all assigned servers',
         )
 
-    # Reconciliation only handles tagged Zabbix hosts with no local assignment,
-    # so it does not need to wait for every per-host job.
+    # Reconciliation only handles tagged Zabbix hosts that the ordinary object
+    # sync cannot safely target, so it only needs the server-global preparation.
     queue.enqueue(
         'nbxsync.services.reconcile.reconcile_managed_hosts',
         args=(server_id,),
@@ -128,7 +130,7 @@ def syncall(zabbixserver) -> None:
 
     logger.info(
         'SyncAll dispatcher finished for ZabbixServer id=%s: '
-        '%s per-host jobs and reconciliation enqueued',
+        '%s object jobs and reconciliation enqueued',
         server_id,
         len(assignments),
     )
