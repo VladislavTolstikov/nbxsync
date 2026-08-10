@@ -61,10 +61,10 @@ class ReconcileManagedHostsTests(TestCase):
         self.device_ct = ContentType.objects.get_for_model(Device)
         self.ip = IPAddress.objects.create(address='192.0.2.100/32')
 
-    def owner_tags(self):
+    def owner_tags(self, object_id=None):
         return [
             {'tag': OWNER_TYPE_TAG, 'value': str(self.device_ct.pk)},
-            {'tag': OWNER_ID_TAG, 'value': str(self.device.pk)},
+            {'tag': OWNER_ID_TAG, 'value': str(object_id or self.device.pk)},
         ]
 
     @patch('nbxsync.services.reconcile.ZabbixConnection')
@@ -139,4 +139,58 @@ class ReconcileManagedHostsTests(TestCase):
 
         reconcile_managed_hosts(self.server.pk)
 
+        api.host.delete.assert_not_called()
+
+    @patch('nbxsync.services.reconcile.ZabbixConnection')
+    def test_invalid_owner_tag_values_are_not_deleted(self, mock_connection):
+        api = MagicMock()
+        api.host.get.return_value = [
+            {
+                'hostid': '1005',
+                'host': self.device.name,
+                'tags': [
+                    {'tag': OWNER_TYPE_TAG, 'value': 'not-an-id'},
+                    {'tag': OWNER_ID_TAG, 'value': 'also-not-an-id'},
+                ],
+            },
+        ]
+        mock_connection.return_value.__enter__.return_value = api
+
+        reconcile_managed_hosts(self.server.pk)
+
+        api.host.delete.assert_not_called()
+
+    @patch('nbxsync.services.reconcile.ZabbixConnection')
+    def test_valid_owner_type_with_missing_netbox_object_is_deleted(self, mock_connection):
+        missing_object_id = self.device.pk + 1000000
+        api = MagicMock()
+        api.host.get.return_value = [
+            {
+                'hostid': '1006',
+                'host': 'removed-device',
+                'tags': self.owner_tags(object_id=missing_object_id),
+            },
+        ]
+        mock_connection.return_value.__enter__.return_value = api
+
+        reconcile_managed_hosts(self.server.pk)
+
+        api.host.delete.assert_called_once_with(['1006'])
+
+    @patch('nbxsync.services.reconcile.device_is_auto_managed_on_server', return_value=True)
+    @patch('nbxsync.services.reconcile.ZabbixConnection')
+    def test_live_auto_managed_orphan_is_kept_for_recovery(
+        self,
+        mock_connection,
+        mock_auto_managed,
+    ):
+        api = MagicMock()
+        api.host.get.return_value = [
+            {'hostid': '1007', 'host': self.device.name, 'tags': self.owner_tags()},
+        ]
+        mock_connection.return_value.__enter__.return_value = api
+
+        reconcile_managed_hosts(self.server.pk)
+
+        mock_auto_managed.assert_called_once_with(self.device, self.server.pk)
         api.host.delete.assert_not_called()
