@@ -100,18 +100,21 @@ def synchost_assignment(assignment_id: int) -> None:
         return
 
     logger.info(
-        "HostSync START assignment %s (server=%s) device=%s",
+        "HostSync START assignment %s (trigger server=%s) device=%s; syncing all assigned Zabbix servers",
         assignment_id,
         assignment.zabbixserver_id,
         obj.name,
     )
 
     try:
-        worker = SyncHostJob(instance=obj, assignment_id=assignment_id)
+        # The assignment is only the trigger/reference used by Sync All to find
+        # the NetBox object. Once the object is selected, SyncHostJob must process
+        # every ZabbixServerAssignment belonging to it.
+        worker = SyncHostJob(instance=obj)
         worker.run()
     except Exception as e:
         logger.error(
-            "HostSync FAILED assignment %s (server=%s) device=%s error=%s",
+            "HostSync FAILED assignment %s (trigger server=%s) device=%s error=%s",
             assignment_id,
             assignment.zabbixserver_id,
             obj.name,
