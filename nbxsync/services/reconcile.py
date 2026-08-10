@@ -78,8 +78,8 @@ def device_is_auto_managed_on_server(device, server_id) -> bool:
 def ensure_device_assignment_for_server(device, zabbixserver) -> bool:
     """Create local NbxSync config for one auto-managed Device/server pair.
 
-    This is the background/full-sync counterpart of the UI autofill action. It
-    accepts active, staged and planned devices, while the UI button remains
+    This is used by the periodic background preparation. It accepts active,
+    staged and planned devices, while the UI Fill NbxSync action remains
     active-only.
     """
     if status_slug(device) not in DEVICE_SYNC_STATUSES:
@@ -132,6 +132,47 @@ def ensure_device_assignment_for_server(device, zabbixserver) -> bool:
     return True
 
 
+def ensure_device_assignments(device) -> int:
+    """Ensure all approved autofill targets for one Device.
+
+    Sync All fans a selected NetBox object out to every assigned Zabbix server.
+    Therefore a missing assignment on a secondary target must be restored before
+    SyncHostJob enumerates the object's assignments.
+    """
+    if status_slug(device) not in DEVICE_SYNC_STATUSES:
+        return 0
+    if getattr(device, 'site', None) is None:
+        return 0
+
+    primary_ip = getattr(device, 'primary_ip4', None) or getattr(device, 'primary_ip6', None)
+    if primary_ip is None:
+        return 0
+
+    role = autofill._role(device)
+    if role in autofill.PASSIVE_ROLES or role in autofill.MANUAL_ROLES:
+        return 0
+
+    rule = autofill.select_rule(device)
+    if rule is None:
+        return 0
+
+    site_key, targets, servers, templates, proxies = autofill._preflight(device, rule)
+    ct = ContentType.objects.get_for_model(device, for_concrete_model=False)
+    result = autofill.AutofillResult()
+    group_names = autofill._group_names(device, site_key, result)
+
+    for target in targets:
+        proxy = proxies.get(target.proxy_id) if target.proxy_id is not None else None
+        server = servers[target.server_id]
+        autofill._ensure_server(device, ct, target, proxy, result)
+        autofill._ensure_groups(device, ct, server, group_names, result)
+        autofill._ensure_interface(device, ct, server, rule, primary_ip, result)
+        autofill._ensure_templates(device, ct, server, templates, rule, result)
+
+    autofill._ensure_inventory(device, ct, result)
+    return len(targets)
+
+
 def prepare_server_assignments(zabbixserver) -> int:
     """Ensure assignments for all auto-managed active/staged/planned Devices."""
     prepared = 0
@@ -167,12 +208,19 @@ def prepare_server_assignments(zabbixserver) -> int:
     return prepared
 
 
-def _tag_map(host):
-    return {
-        str(tag.get('tag')): str(tag.get('value', ''))
-        for tag in host.get('tags', [])
-        if tag.get('tag')
-    }
+def _owner_tag_values(host):
+    type_values = []
+    id_values = []
+
+    for tag in host.get('tags', []):
+        tag_name = str(tag.get('tag', ''))
+        value = str(tag.get('value', ''))
+        if tag_name == OWNER_TYPE_TAG:
+            type_values.append(value)
+        elif tag_name == OWNER_ID_TAG:
+            id_values.append(value)
+
+    return type_values, id_values
 
 
 def _parse_owner_ids(owner_type_value, owner_id_value):
@@ -218,12 +266,13 @@ def _clear_matching_assignment_hostid(assignment, hostid):
 
 
 def reconcile_managed_hosts(server_id: int) -> None:
-    """Reconcile Zabbix hosts carrying NbxSync ownership tags.
+    """Reconcile Zabbix hosts carrying unambiguous NbxSync ownership tags.
 
-    Hosts without valid ownership tags are never touched. When a local assignment
-    points at the same host ID and its NetBox owner still exists, the normal host
-    sync job remains responsible for enable/disable/delete. Reconciliation only
-    handles orphans and stale/missing host IDs that the normal job cannot target.
+    Hosts without exactly one valid type tag and exactly one valid object-id tag
+    are never touched. When a local assignment points at the same host ID and its
+    NetBox owner still exists, the normal host sync job remains responsible for
+    enable/disable/delete. Reconciliation handles orphans and stale/missing host
+    IDs that the normal job cannot safely target.
     """
     try:
         zabbixserver = ZabbixServer.objects.get(pk=server_id)
@@ -239,19 +288,22 @@ def reconcile_managed_hosts(server_id: int) -> None:
         )
 
         for host in hosts:
-            tags = _tag_map(host)
-            owner_type_value = tags.get(OWNER_TYPE_TAG)
-            owner_id_value = tags.get(OWNER_ID_TAG)
+            type_values, id_values = _owner_tag_values(host)
 
-            if owner_type_value is None and owner_id_value is None:
+            if not type_values and not id_values:
                 continue
-            if owner_type_value is None or owner_id_value is None:
+            if len(type_values) != 1 or len(id_values) != 1:
                 logger.warning(
-                    'Reconcile ignored hostid=%s with incomplete NbxSync owner tags',
+                    'Reconcile ignored hostid=%s with ambiguous NbxSync owner tags '
+                    'type_values=%r id_values=%r',
                     host.get('hostid'),
+                    type_values,
+                    id_values,
                 )
                 continue
 
+            owner_type_value = type_values[0]
+            owner_id_value = id_values[0]
             owner_ids = _parse_owner_ids(owner_type_value, owner_id_value)
             if owner_ids is None:
                 logger.warning(
