@@ -12,6 +12,16 @@ from nbxsync.utils.sync.hostgroupsync import HostGroupSync
 from nbxsync.utils.sync.safe_sync import safe_sync
 
 
+def api_request_error(data, message='Application error'):
+    return APIRequestError(
+        {
+            'message': message,
+            'data': data,
+            'body': {},
+        }
+    )
+
+
 class DummyHostgroupAPI:
     def __init__(self):
         self.updated = None
@@ -31,7 +41,7 @@ class DummyHostgroupAPI:
 @patch('nbxsync.utils.sync.safe_sync.ZabbixConnection')
 @patch('nbxsync.utils.sync.safe_sync.ZabbixServer')
 def test_safe_sync_reuses_existing_hostgroup(mock_server, mock_connection, mock_run_op):
-    mock_run_op.side_effect = APIRequestError({'message': 'Application error', 'data': 'Host group already exists'})
+    mock_run_op.side_effect = api_request_error('Host group already exists')
 
     server = ZabbixServer.objects.create(name='Server', url='http://example', token='abc123')
     device = create_test_device(name='host-1')
@@ -59,7 +69,10 @@ def test_safe_sync_reuses_existing_hostgroup(mock_server, mock_connection, mock_
 
 
 @pytest.mark.django_db
-@patch('nbxsync.utils.sync.safe_sync.run_zabbix_operation', side_effect=APIRequestError({'data': 'Something else'}))
+@patch(
+    'nbxsync.utils.sync.safe_sync.run_zabbix_operation',
+    side_effect=api_request_error('Something else'),
+)
 def test_safe_sync_raises_non_duplicate_errors(mock_run_op):
     server = ZabbixServer.objects.create(name='Server', url='http://example', token='abc123')
     device = create_test_device(name='host-2')
