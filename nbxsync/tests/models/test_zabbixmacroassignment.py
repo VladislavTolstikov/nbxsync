@@ -99,10 +99,9 @@ class ZabbixMacroAssignmentTestCase(TestCase):
             with transaction.atomic():
                 duplicate.save()
         except IntegrityError:
-            pass  # This is expected
+            pass
 
     def test_str_non_regex_with_context(self):
-        # Manually set a context even though is_regex=False, and call __str__ before clean clears it
         assignment = ZabbixMacroAssignment(
             zabbixmacro=self.macro,
             value='someval',
@@ -112,12 +111,11 @@ class ZabbixMacroAssignmentTestCase(TestCase):
             assigned_object_id=self.device.id,
         )
 
-        # Call __str__ before .clean() clears context
         result = str(assignment)
         expected = f'{self.macro.macro[:-1]}:custom-context}}'
         self.assertEqual(result, expected)
 
-    def test_full_name_property_returns_self(self):
+    def test_full_name_property_returns_rendered_name(self):
         assignment = ZabbixMacroAssignment(
             zabbixmacro=self.macro,
             value='example',
@@ -126,9 +124,7 @@ class ZabbixMacroAssignmentTestCase(TestCase):
             assigned_object_type=self.device_ct,
             assigned_object_id=self.device.id,
         )
-
-        # Save so the instance has a primary key if needed
         assignment.save()
 
-        # Access full_name and verify it returns the object itself
-        self.assertIs(assignment.full_name, assignment)
+        self.assertEqual(assignment.full_name, str(assignment))
+        self.assertIsInstance(assignment.full_name, str)
