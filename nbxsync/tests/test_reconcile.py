@@ -203,11 +203,24 @@ class ReconcileManagedHostsTests(TestCase):
     @patch('nbxsync.services.reconcile.ZabbixConnection')
     def test_missing_owner_with_matching_assignment_clears_assignment_hostid(self, mock_connection):
         missing_object_id = self.device.pk + 2000000
-        assignment = ZabbixServerAssignment.objects.create(
+        # This test intentionally represents historical/stale data. The model's
+        # normal save() correctly rejects an assignment whose GenericForeignKey
+        # target no longer exists, so bulk_create is used to reproduce a row
+        # that can remain after external or legacy cleanup.
+        ZabbixServerAssignment.objects.bulk_create(
+            [
+                ZabbixServerAssignment(
+                    zabbixserver=self.server,
+                    assigned_object_type=self.device_ct,
+                    assigned_object_id=missing_object_id,
+                    hostid=1009,
+                )
+            ]
+        )
+        assignment = ZabbixServerAssignment.objects.get(
             zabbixserver=self.server,
             assigned_object_type=self.device_ct,
             assigned_object_id=missing_object_id,
-            hostid=1009,
         )
 
         api = MagicMock()
