@@ -8,8 +8,10 @@ from .run_zabbix_operations import run_zabbix_operation
 from .host_delete import install as install_host_delete
 from .host_policy_guard import install as install_host_policy_guard
 from .identity_guard import install as install_identity_guard
+from .runtime_compat import install as install_runtime_compat
 
 
 install_host_delete(HostSync)
 install_host_policy_guard(HostSync)
 install_identity_guard(HostSync, HostInterfaceSync)
+install_runtime_compat(HostSync, HostInterfaceSync)
