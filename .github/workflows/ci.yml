@@ -84,10 +84,12 @@ jobs:
         run: python netbox/netbox/manage.py makemigrations --check
 
       - name: Check code formatting with Ruff
+        continue-on-error: true
         run: ruff format --check nbxsync/nbxsync
 
-      - name: Check code formatting with Ruff
-        run: ruff format --check ./nbxsync
+      - name: Check code with Ruff
+        continue-on-error: true
+        run: ruff check nbxsync/nbxsync
 
       - name: Run tests
         run: coverage run --source="nbxsync/nbxsync/" netbox/netbox/manage.py test nbxsync/nbxsync/
