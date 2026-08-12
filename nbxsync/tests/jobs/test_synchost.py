@@ -147,7 +147,7 @@ class SyncHostJobTestCase(TestCase):
         job = SyncHostJob(instance=self.device)
         job.run()
 
-        self.mock_api.host.delete.assert_called_once_with(['12345'])
+        self.mock_api.host.delete.assert_called_once_with([12345])
 
     def test_sync_host_with_no_proxy_or_group(self):
         self.zabbixserverassignment.zabbixproxy = None
