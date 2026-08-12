@@ -248,8 +248,17 @@ def _clear_matching_assignment_hostid(assignment, hostid):
         return
     if str(assignment.hostid) != str(hostid):
         return
+
+    # A stale assignment can legitimately reference a NetBox object that no
+    # longer exists. Calling model.save() here re-runs GenericForeignKey
+    # validation and prevents reconciliation from cleaning that stale row.
+    # QuerySet.update() changes only hostid and deliberately bypasses model
+    # validation for this cleanup path.
+    ZabbixServerAssignment.objects.filter(
+        pk=assignment.pk,
+        hostid=assignment.hostid,
+    ).update(hostid=None)
     assignment.hostid = None
-    assignment.save(update_fields=['hostid'])
 
 
 def _enforce_lifecycle_status(api, host, desired):
