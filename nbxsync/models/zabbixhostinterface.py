@@ -124,8 +124,9 @@ class ZabbixHostInterface(SyncInfoModel, NetBoxModel):
         constraints = [
             models.UniqueConstraint(
                 fields=['zabbixserver', 'type', 'assigned_object_type', 'assigned_object_id'],
-                name='%(app_label)s_%(class)s_unique__server_type_object',
-                violation_error_message='A Hostinterface with this type has already been defined',
+                condition=models.Q(interface_type=ZabbixInterfaceTypeChoices.DEFAULT),
+                name='%(app_label)s_%(class)s_unique__default_server_type_object',
+                violation_error_message='A default Hostinterface with this type has already been defined',
             )
         ]
 
