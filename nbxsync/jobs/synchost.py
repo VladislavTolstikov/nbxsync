@@ -2,7 +2,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from nbxsync.choices.zabbixstatus import ZabbixHostStatus
 from nbxsync.models import ZabbixServerAssignment
-from nbxsync.settings import get_plugin_settings
+from nbxsync.services.host_policy import desired_host_status
 from nbxsync.utils import get_assigned_zabbixobjects
 from nbxsync.utils.sync import HostGroupSync, HostInterfaceSync, HostSync, ProxyGroupSync, ProxySync, run_zabbix_operation
 from nbxsync.utils.sync.safe_delete import safe_delete
@@ -22,18 +22,29 @@ class SyncHostJob:
             assigned_object_id=self.instance.pk,
         )
 
-        status = self.instance.status
-        object_type = self.instance._meta.model_name
-        pluginsettings = get_plugin_settings()
-        status_mapping = getattr(pluginsettings.statusmapping, object_type, {})
-        zabbix_status = status_mapping.get(status)
+        zabbix_status = desired_host_status(self.instance)
+        errors = []
 
+        # One NetBox object may be assigned to several Zabbix servers. A failure
+        # on one server must not prevent the remaining servers from being tried.
         for assignment in zabbixserver_assignments:
-            if zabbix_status == ZabbixHostStatus.DELETED:
-                self.delete_host(assignment)
-            else:
-                all_objects = self.sync_host(assignment)
-                self.verify_hostinterfaces(assignment, all_objects)
+            try:
+                if zabbix_status == ZabbixHostStatus.DELETED:
+                    self.delete_host(assignment)
+                else:
+                    all_objects = self.sync_host(assignment)
+                    self.verify_hostinterfaces(assignment, all_objects)
+            except Exception as error:
+                errors.append(
+                    f'assignment={assignment.pk} '
+                    f'server={assignment.zabbixserver_id}: {error}'
+                )
+
+        if errors:
+            raise RuntimeError(
+                'Host synchronization completed with errors on one or more '
+                'Zabbix servers: ' + ' | '.join(errors)
+            )
 
     def delete_host(self, assignment):
         safe_delete(HostSync, assignment)

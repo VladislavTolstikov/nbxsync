@@ -8,7 +8,6 @@ from dcim.models import Device
 from utilities.testing import create_test_device
 
 from nbxsync.choices import ZabbixProxyTypeChoices, ZabbixTLSChoices
-from nbxsync.choices.zabbixstatus import ZabbixHostStatus
 from nbxsync.jobs.synchost import SyncHostJob
 from nbxsync.models import (
     ZabbixHostgroup,
@@ -22,14 +21,26 @@ from nbxsync.models import (
 from nbxsync.utils.sync import ProxyGroupSync
 
 
+OWNER_TYPE_TAG = 'nbxsync.object_type_id'
+OWNER_ID_TAG = 'nbxsync.object_id'
+
+
 class SyncHostJobTestCase(TestCase):
     def setUp(self):
         self.device = create_test_device(name='SyncHostVM')
         self.device_ct = ContentType.objects.get_for_model(Device)
 
-        self.zabbixserver = ZabbixServer.objects.create(name='Zabbix1', url='http://zabbix.local', token='abc123')
+        self.zabbixserver = ZabbixServer.objects.create(
+            name='Zabbix1',
+            url='http://zabbix.local',
+            token='abc123',
+        )
 
-        self.proxygroup = ZabbixProxyGroup.objects.create(name='Test Proxy Group', zabbixserver=self.zabbixserver, proxy_groupid=99)
+        self.proxygroup = ZabbixProxyGroup.objects.create(
+            name='Test Proxy Group',
+            zabbixserver=self.zabbixserver,
+            proxy_groupid=99,
+        )
         self.proxy = ZabbixProxy.objects.create(
             name='Active Proxy #1',
             zabbixserver=self.zabbixserver,
@@ -43,7 +54,12 @@ class SyncHostJobTestCase(TestCase):
             tls_psk='2AB09AD2496109A3BFAC0C6BB4D37CEF',
         )
 
-        self.hostgroup = ZabbixHostgroup.objects.create(name='HG1', zabbixserver=self.zabbixserver, groupid=123, value='Static Group')
+        self.hostgroup = ZabbixHostgroup.objects.create(
+            name='HG1',
+            zabbixserver=self.zabbixserver,
+            groupid=123,
+            value='Static Group',
+        )
         self.interface_ip = IPAddress.objects.create(address='192.168.1.100/32')
         self.hostinterface = ZabbixHostInterface.objects.create(
             zabbixserver=self.zabbixserver,
@@ -64,16 +80,32 @@ class SyncHostJobTestCase(TestCase):
             zabbixproxy=self.proxy,
         )
 
-        self.zabbixhostgroupassignment = ZabbixHostgroupAssignment.objects.create(zabbixhostgroup=self.hostgroup, assigned_object_type=self.device_ct, assigned_object_id=self.device.id)
+        self.zabbixhostgroupassignment = ZabbixHostgroupAssignment.objects.create(
+            zabbixhostgroup=self.hostgroup,
+            assigned_object_type=self.device_ct,
+            assigned_object_id=self.device.id,
+        )
 
-        # Patch ZabbixConnection to avoid real HTTP calls
-        self.zabbix_patcher = patch('nbxsync.utils.sync.run_zabbix_operations.ZabbixConnection')
+        self.zabbix_patcher = patch(
+            'nbxsync.utils.sync.run_zabbix_operations.ZabbixConnection'
+        )
         mock_conn_class = self.zabbix_patcher.start()
         self.addCleanup(self.zabbix_patcher.stop)
 
-        # Define a stable mock API
         mock_api = MagicMock()
-        mock_api.host.get.return_value = [{'hostid': '12345'}]
+        mock_api.host.get.return_value = [
+            {
+                'hostid': '12345',
+                'host': self.device.name,
+                'name': self.device.name,
+                'tags': [
+                    {'tag': OWNER_TYPE_TAG, 'value': str(self.device_ct.pk)},
+                    {'tag': OWNER_ID_TAG, 'value': str(self.device.pk)},
+                ],
+                'interfaces': [],
+                'macros': [],
+            }
+        ]
         mock_api.host.create.return_value = {'hostids': ['12345']}
         mock_api.host.update.return_value = {'hostids': ['12345']}
         mock_api.host.delete.return_value = True
@@ -101,7 +133,7 @@ class SyncHostJobTestCase(TestCase):
         mock_api.proxygroup.get.return_value = [{'proxy_groupid': 99}]
         mock_api.proxygroup.create.return_value = {'proxy_groupids': [99]}
 
-        # Assign API to context manager return
+        self.mock_api = mock_api
         mock_conn_class.return_value.__enter__.return_value = mock_api
 
     def test_run_sync_host_success(self):
@@ -111,14 +143,11 @@ class SyncHostJobTestCase(TestCase):
     def test_run_sync_host_deleted(self):
         self.device.status = 'decommissioning'
         self.device.save()
-        # Set mapping to deleted for test
-        from nbxsync.settings import get_plugin_settings
-
-        pluginsettings = get_plugin_settings()
-        pluginsettings.statusmapping.device['decommissioning'] = ZabbixHostStatus.DELETED
 
         job = SyncHostJob(instance=self.device)
         job.run()
+
+        self.mock_api.host.delete.assert_called_once_with([12345])
 
     def test_sync_host_with_no_proxy_or_group(self):
         self.zabbixserverassignment.zabbixproxy = None
@@ -129,7 +158,7 @@ class SyncHostJobTestCase(TestCase):
         job.run()
 
     @patch('nbxsync.jobs.synchost.safe_sync')
-    @patch.object(SyncHostJob, 'verify_hostinterfaces')  # Prevent interface verification from running
+    @patch.object(SyncHostJob, 'verify_hostinterfaces')
     def test_sync_host_with_proxygroup(self, mock_verify_interfaces, mock_safe_sync):
         self.zabbixserverassignment.zabbixproxy = None
         self.zabbixserverassignment.zabbixproxygroup = self.proxygroup
@@ -142,9 +171,8 @@ class SyncHostJobTestCase(TestCase):
         self.assertIn(ProxyGroupSync, called_types)
 
     @patch('nbxsync.jobs.synchost.safe_sync')
-    @patch.object(SyncHostJob, 'verify_hostinterfaces')  # prevent irrelevant logic from running
+    @patch.object(SyncHostJob, 'verify_hostinterfaces')
     def test_sync_host_raises_runtimeerror_on_exception(self, mock_verify_interfaces, mock_safe_sync):
-        # Force safe_sync to raise an error (e.g., during HostGroupSync)
         mock_safe_sync.side_effect = ValueError('Simulated failure')
 
         job = SyncHostJob(instance=self.device)

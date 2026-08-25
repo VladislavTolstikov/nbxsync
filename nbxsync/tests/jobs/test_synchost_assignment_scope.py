@@ -1,0 +1,78 @@
+from unittest.mock import patch
+
+from django.contrib.contenttypes.models import ContentType
+from django.test import TestCase
+
+from dcim.models import Device
+from utilities.testing import create_test_device
+
+from nbxsync.jobs.synchost import SyncHostJob
+from nbxsync.models import ZabbixServer, ZabbixServerAssignment
+from nbxsync.worker.global_sync import synchost_assignment
+
+
+class SyncHostAssignmentScopeTests(TestCase):
+    def setUp(self):
+        self.device = create_test_device(name='assignment-scope-device')
+        self.device_ct = ContentType.objects.get_for_model(Device)
+        self.server1 = ZabbixServer.objects.create(
+            name='Scope server 1',
+            url='http://scope1.example.test',
+            token='token1',
+        )
+        self.server2 = ZabbixServer.objects.create(
+            name='Scope server 2',
+            url='http://scope2.example.test',
+            token='token2',
+        )
+        self.assignment1 = ZabbixServerAssignment.objects.create(
+            zabbixserver=self.server1,
+            assigned_object_type=self.device_ct,
+            assigned_object_id=self.device.pk,
+        )
+        self.assignment2 = ZabbixServerAssignment.objects.create(
+            zabbixserver=self.server2,
+            assigned_object_type=self.device_ct,
+            assigned_object_id=self.device.pk,
+        )
+
+    @patch.object(SyncHostJob, 'verify_hostinterfaces')
+    @patch.object(SyncHostJob, 'sync_host', return_value={})
+    def test_sync_host_updates_all_server_assignments(self, mock_sync_host, mock_verify):
+        SyncHostJob(instance=self.device).run()
+
+        self.assertEqual(mock_sync_host.call_count, 2)
+        synced_assignment_ids = {
+            call.args[0].pk for call in mock_sync_host.call_args_list
+        }
+        self.assertEqual(
+            synced_assignment_ids,
+            {self.assignment1.pk, self.assignment2.pk},
+        )
+        self.assertEqual(mock_verify.call_count, 2)
+
+    @patch.object(SyncHostJob, 'verify_hostinterfaces')
+    @patch.object(SyncHostJob, 'sync_host')
+    def test_failure_on_one_server_does_not_skip_the_other(self, mock_sync_host, mock_verify):
+        mock_sync_host.side_effect = [RuntimeError('first server failed'), {}]
+
+        with self.assertRaises(RuntimeError):
+            SyncHostJob(instance=self.device).run()
+
+        self.assertEqual(mock_sync_host.call_count, 2)
+        self.assertEqual(mock_verify.call_count, 1)
+
+    @patch('nbxsync.worker.global_sync.ensure_device_assignments', return_value=2)
+    @patch('nbxsync.worker.global_sync.SyncHostJob.run')
+    @patch('nbxsync.worker.global_sync.SyncHostJob.__init__', return_value=None)
+    def test_syncall_trigger_assignment_syncs_all_servers(
+        self,
+        mock_init,
+        mock_run,
+        mock_prepare,
+    ):
+        synchost_assignment(self.assignment1.pk)
+
+        mock_prepare.assert_called_once_with(self.device)
+        mock_init.assert_called_once_with(instance=self.device)
+        mock_run.assert_called_once_with()
