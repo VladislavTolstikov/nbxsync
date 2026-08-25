@@ -40,7 +40,9 @@ class HostInterfaceSync(ZabbixSyncBase):
         if ip_obj is None:
             ip_obj = IPAddress.objects.get(id=self.obj.ip_id)
 
-        return str(ip_obj.address.ip)
+        # NetBox 4.5 exposes IPAddress.address as a string. Older releases may
+        # return a netaddr object; converting to str works for both.
+        return str(ip_obj.address).split('/', 1)[0]
 
     def get_create_params(self) -> dict:
         hostid = self._get_hostid()
@@ -107,20 +109,61 @@ class HostInterfaceSync(ZabbixSyncBase):
     def result_key(self) -> str:
         return 'interfaceids'
 
+    @staticmethod
+    def _int_value(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _snmp_details_match(self, interface, params):
+        actual = interface.get('details') or {}
+        expected = params.get('details') or {}
+
+        version = self._int_value(expected.get('version'))
+        if self._int_value(actual.get('version')) != version:
+            return False
+
+        if self._int_value(actual.get('bulk'), 1) != self._int_value(expected.get('bulk'), 1):
+            return False
+
+        if version in (1, 2):
+            return str(actual.get('community', '')) == str(expected.get('community', ''))
+
+        if version == 3:
+            for key in ('contextname', 'securityname'):
+                if str(actual.get(key, '')) != str(expected.get(key, '')):
+                    return False
+
+            for key in ('securitylevel', 'authprotocol', 'privprotocol'):
+                if self._int_value(actual.get(key)) != self._int_value(expected.get(key)):
+                    return False
+
+        return True
+
     def _exact_match(self, interface, params):
-        if int(interface.get('type', 0)) != int(params.get('type', 0)):
+        if self._int_value(interface.get('type')) != self._int_value(params.get('type')):
+            return False
+
+        if self._int_value(interface.get('main')) != self._int_value(params.get('main')):
             return False
 
         if str(interface.get('port', '')) != str(params.get('port', '')):
             return False
 
-        if int(interface.get('useip', 1)) != int(params.get('useip', 1)):
+        if self._int_value(interface.get('useip'), 1) != self._int_value(params.get('useip'), 1):
             return False
 
-        if int(params.get('useip', 1)) == 1:
-            return interface.get('ip') == params.get('ip')
+        if self._int_value(params.get('useip'), 1) == 1:
+            if interface.get('ip') != params.get('ip'):
+                return False
+        elif interface.get('dns') != params.get('dns'):
+            return False
 
-        return interface.get('dns') == params.get('dns')
+        if self._int_value(params.get('type')) == 2:
+            return self._snmp_details_match(interface, params)
+
+        return True
 
     def _find_existing_interface(self, hostid):
         params = self.get_create_params()
@@ -136,23 +179,18 @@ class HostInterfaceSync(ZabbixSyncBase):
             selectDetails='extend',
         )
 
-        same_type_main = [
-            i for i in interfaces
-            if int(i.get('type', 0)) == expected_type
-            and int(i.get('main', 0)) == expected_main
-        ]
+        same_type_main = [i for i in interfaces if self._int_value(i.get('type')) == expected_type and self._int_value(i.get('main')) == expected_main]
 
-        # Главный кейс: default-интерфейс этого типа у хоста.
-        # В Zabbix он может быть только один.
-        if len(same_type_main) == 1:
+        # Zabbix permits only one default interface of each type. If the
+        # NetBox object represents that default interface, adopt it even when
+        # its endpoint/details need to be updated.
+        if expected_main == 1 and len(same_type_main) == 1:
             return same_type_main[0]
 
-        # Для non-default или неоднозначных случаев ищем точное совпадение.
+        # Non-default interfaces may share the same IP/port. Their SNMP
+        # details (especially community/context) must therefore be part of
+        # the identity check or one interface can overwrite another.
         for interface in same_type_main:
-            if self._exact_match(interface, params):
-                return interface
-
-        for interface in interfaces:
             if self._exact_match(interface, params):
                 return interface
 
