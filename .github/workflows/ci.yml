@@ -107,7 +107,7 @@ jobs:
           echo "cov=$coverage_percent" >> $GITHUB_OUTPUT
 
       - name: Create Coverage Badge
-        if: github.ref == 'refs/heads/main'
+        if: github.repository == 'OpensourceICTSolutions/nbxsync' && github.ref == 'refs/heads/main' && matrix.python-version == '3.12'
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_TOKEN }}
