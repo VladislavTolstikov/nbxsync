@@ -65,6 +65,14 @@ def _build_device_label(device: Device) -> str:
     return label or "-"
 
 
+def _find_site_rack_location(device: Device) -> str:
+    rack = device.rack
+    if not rack:
+        return "-"
+
+    return rack.name or str(rack) or "-"
+
+
 def _find_responsible(device: Device) -> str:
     tenant: Optional[Tenant] = device.tenant
     if not tenant:
@@ -85,22 +93,20 @@ def _device_link(device):
 
 def build_zabbix_description(device: Device) -> str:
     """
-    Формирует текст для описания хоста Zabbix в нужном формате:
-
-    Локация: ...
-    Модель:  ...
-    NetBox:  ...
-    Ответственный: ...
+    Формирует текст для описания хоста Zabbix в том же формате,
+    что и assign_description_all.py.
     """
     loc_path = _build_location_path(device)
     dev_label = _build_device_label(device)
+    rack = _find_site_rack_location(device)
     link = _device_link(device)
     resp = _find_responsible(device)
 
     return (
         f"Локация: {loc_path}\n"
-        f"Модель:  {dev_label}\n"
-        f"NetBox:  {link}\n"
+        f"Модель: {dev_label}\n"
+        f"Стойка: {rack}\n\n"
+        f"NetBox:\n {link}\n\n"
         f"Ответственный: {resp}"
     )
 
