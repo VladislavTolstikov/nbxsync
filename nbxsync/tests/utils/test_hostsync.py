@@ -201,6 +201,7 @@ class HostSyncTestCase(TestCase):
     def test_get_create_params(self):
         params = self.sync.get_create_params()
         self.assertIn('host', params)
+        self.assertIn('name', params)
         self.assertEqual(params['status'], 0)
         self.assertIn('macros', params)
         self.assertIn('tls_connect', params)
@@ -209,6 +210,7 @@ class HostSyncTestCase(TestCase):
     def test_get_update_params(self):
         update_params = self.sync.get_update_params()
         self.assertIn('hostid', update_params)
+        self.assertNotIn('name', update_params)
 
     def test_get_macros_snmpv2_only(self):
         macros = self.sync.get_macros()
