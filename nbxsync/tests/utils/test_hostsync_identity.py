@@ -123,11 +123,11 @@ class HostSyncIdentityTestCase(TestCase):
 
         self.assertEqual(update_calls[0].kwargs['hostid'], '10101')
         self.assertEqual(update_calls[0].kwargs['host'], 'SW. Core 1')
-        self.assertEqual(update_calls[0].kwargs['name'], 'SW. Core 1')
+        self.assertNotIn('name', update_calls[0].kwargs)
 
         self.assertEqual(update_calls[1].kwargs['hostid'], '10102')
         self.assertEqual(update_calls[1].kwargs['host'], 'SW. Core 10')
-        self.assertEqual(update_calls[1].kwargs['name'], 'SW. Core 10')
+        self.assertNotIn('name', update_calls[1].kwargs)
 
     def test_sync_creates_host_without_name_lookup_when_missing_hostid(self):
         self.assignment_b.hostid = None
