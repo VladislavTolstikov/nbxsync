@@ -78,7 +78,6 @@ class NetboxZabbix(PluginConfig):
         'netbox_link': {
             'enabled': False,
             'base_url': None,
-            'macro': '{$NETBOX.URL}',
         },
         'inheritance_chain': [
             ['device'],
