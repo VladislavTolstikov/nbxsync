@@ -75,6 +75,11 @@ class NetboxZabbix(PluginConfig):
             'snmp_authpass': '{$SNMP_AUTHPASS}',
             'snmp_privpass': '{$SNMP_PRIVPASS}',
         },
+        'netbox_link': {
+            'enabled': False,
+            'base_url': None,
+            'macro': '{$NETBOX.URL}',
+        },
         'inheritance_chain': [
             ['device'],
             ['role'],
