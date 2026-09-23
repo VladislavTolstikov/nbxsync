@@ -38,6 +38,98 @@ class SNMPConfig(BaseModel):
         return v
 
 
+class NetBoxLinkConfig(BaseModel):
+    enabled: bool = Field(default=False)
+    base_url: Optional[str] = Field(default=None)
+    macro: str = Field(default='{$NETBOX.URL}')
+
+    @field_validator('macro', mode='before')
+    def validate_macro_format(cls, v: str) -> str:
+        if not (isinstance(v, str) and v.startswith('{
+
+class BackgroundSync(BaseModel):
+    objects: BackgroundSyncConfig = Field(default_factory=BackgroundSyncConfig)
+    templates: BackgroundSyncConfig = Field(default_factory=BackgroundSyncConfig)
+    proxies: BackgroundSyncConfig = Field(default_factory=BackgroundSyncConfig)
+    maintenance: BackgroundSyncConfig = Field(default_factory=BackgroundSyncConfig)
+
+
+class PluginSettingsModel(BaseModel):
+    sot: SoTConfig = SoTConfig()
+    statusmapping: StatusMapping = Field(default_factory=StatusMapping)
+    snmpconfig: SNMPConfig = Field(default_factory=SNMPConfig)
+    netbox_link: NetBoxLinkConfig = Field(default_factory=NetBoxLinkConfig)
+    backgroundsync: BackgroundSync = Field(default_factory=BackgroundSync)
+    inheritance_chain: List[Tuple[str, ...]] = Field(
+        default_factory=lambda: [
+            ('role',),
+            ('role', 'parent'),
+            ('device_type',),
+            ('platform',),
+            ('device_type', 'manufacturer'),
+            ('manufacturer',),
+            ('cluster',),
+            ('cluster', 'type'),
+            ('type',),
+        ]
+    )
+    no_alerting_tag: str = Field(default='NO_ALERTING')
+    no_alerting_tag_value: str = Field(default='1')
+    maintenance_window_duration: int = Field(default=3600)
+
+
+# Helper function
+def get_plugin_settings() -> PluginSettingsModel:
+    plugin_config = apps.get_app_config('nbxsync')
+    return plugin_config.validated_config
+) and v.endswith('}')):
+            raise ValueError("Value must start with '{
+
+class BackgroundSync(BaseModel):
+    objects: BackgroundSyncConfig = Field(default_factory=BackgroundSyncConfig)
+    templates: BackgroundSyncConfig = Field(default_factory=BackgroundSyncConfig)
+    proxies: BackgroundSyncConfig = Field(default_factory=BackgroundSyncConfig)
+    maintenance: BackgroundSyncConfig = Field(default_factory=BackgroundSyncConfig)
+
+
+class PluginSettingsModel(BaseModel):
+    sot: SoTConfig = SoTConfig()
+    statusmapping: StatusMapping = Field(default_factory=StatusMapping)
+    snmpconfig: SNMPConfig = Field(default_factory=SNMPConfig)
+    backgroundsync: BackgroundSync = Field(default_factory=BackgroundSync)
+    inheritance_chain: List[Tuple[str, ...]] = Field(
+        default_factory=lambda: [
+            ('role',),
+            ('role', 'parent'),
+            ('device_type',),
+            ('platform',),
+            ('device_type', 'manufacturer'),
+            ('manufacturer',),
+            ('cluster',),
+            ('cluster', 'type'),
+            ('type',),
+        ]
+    )
+    no_alerting_tag: str = Field(default='NO_ALERTING')
+    no_alerting_tag_value: str = Field(default='1')
+    maintenance_window_duration: int = Field(default=3600)
+
+
+# Helper function
+def get_plugin_settings() -> PluginSettingsModel:
+    plugin_config = apps.get_app_config('nbxsync')
+    return plugin_config.validated_config
+ and end with '}'")
+        return v
+
+    @field_validator('base_url', mode='before')
+    def normalize_base_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        value = str(v).strip().rstrip('/')
+        return value or None
+
+
 class BackgroundSyncConfig(BaseModel):
     enabled: bool = Field(default=True)
     interval: int = Field(default=60)
