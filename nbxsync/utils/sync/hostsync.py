@@ -94,6 +94,83 @@ class HostSync(ZabbixSyncBase):
     def get_name_value(self):
         return self.obj.assigned_object.name
 
+    def _current_host_macro(self, macro_name: str):
+        if not self.obj.hostid:
+            return None
+
+        try:
+            current = self.api.host.get(
+                output=['hostid'],
+                hostids=self.obj.hostid,
+                selectMacros=['macro', 'value', 'description', 'type'],
+            )
+        except Exception as exc:
+            logger.warning(
+                "Unable to preserve NetBox link macro for hostid %s: %s",
+                self.obj.hostid,
+                exc,
+            )
+            return None
+
+        macros = current[0].get('macros', []) if current else []
+        for macro in macros:
+            if macro.get('macro') == macro_name:
+                return {
+                    'macro': macro_name,
+                    'value': macro.get('value', ''),
+                    'description': macro.get('description', ''),
+                    'type': int(macro.get('type', 0)),
+                }
+
+        return None
+
+    def _netbox_link_url(self) -> str:
+        config = self.pluginsettings.netbox_link
+        if not config.base_url:
+            raise RuntimeError(
+                "netbox_link.enabled is true but netbox_link.base_url is not configured"
+            )
+
+        assigned = self.obj.assigned_object
+        try:
+            path = assigned.get_absolute_url()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Unable to resolve NetBox URL for {assigned}: {exc}"
+            ) from exc
+
+        if not path:
+            raise RuntimeError(f"Unable to resolve NetBox URL for {assigned}: empty path")
+
+        return f"{config.base_url.rstrip('/')}/{str(path).lstrip('/')}"
+
+    def _apply_netbox_link_macro(self, macros: list) -> list:
+        config = getattr(self.pluginsettings, 'netbox_link', None)
+        if config is None:
+            return macros
+
+        macro_name = '{$NETBOX.URL}'
+        result = [m for m in macros if m.get('macro') != macro_name]
+
+        if config.enabled:
+            result.append(
+                {
+                    'macro': macro_name,
+                    'value': self._netbox_link_url(),
+                    'description': 'NetBox object URL',
+                    'type': 0,
+                }
+            )
+            return result
+
+        # Disabled means "do not touch". host.update() replaces the host macro
+        # set, so preserve the current value explicitly if it already exists.
+        current = self._current_host_macro(macro_name)
+        if current:
+            result.append(current)
+
+        return result
+
     # -------- host.create() parameters --------
     def get_create_params(self) -> dict:
         status = self.obj.assigned_object.status
@@ -384,7 +461,8 @@ class HostSync(ZabbixSyncBase):
             if m["macro"] == snmpconf.snmp_community:
                 snmp_macros = [x for x in snmp_macros if x["macro"] != snmpconf.snmp_community]
 
-        return {"macros": all_macros + snmp_macros}
+        macros = self._apply_netbox_link_macro(all_macros + snmp_macros)
+        return {"macros": macros}
 
     def get_hostinterface_attributes(self) -> dict:
         result = {}
