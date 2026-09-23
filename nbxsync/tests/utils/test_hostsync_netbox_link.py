@@ -126,3 +126,30 @@ class HostSyncNetBoxLinkTestCase(SimpleTestCase):
             'netbox_link.enabled is true but netbox_link.base_url is not configured',
         ):
             sync._apply_netbox_link_macro([])
+
+    def test_disabled_macro_read_failure_does_not_break_sync(self):
+        sync = self.make_sync(enabled=False)
+        sync.api.host.get.side_effect = RuntimeError('Zabbix unavailable')
+
+        result = sync._apply_netbox_link_macro(
+            [
+                {
+                    'macro': '{$OTHER}',
+                    'value': 'keep',
+                    'description': '',
+                    'type': 0,
+                }
+            ]
+        )
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    'macro': '{$OTHER}',
+                    'value': 'keep',
+                    'description': '',
+                    'type': 0,
+                }
+            ],
+        )
