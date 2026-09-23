@@ -21,7 +21,6 @@ class HostSyncNetBoxLinkTestCase(SimpleTestCase):
             netbox_link=SimpleNamespace(
                 enabled=enabled,
                 base_url=base_url,
-                macro='{$NETBOX.URL}',
             )
         )
         sync.api = SimpleNamespace(host=MagicMock())
