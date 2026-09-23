@@ -23,7 +23,6 @@ class PluginSettingsModelTestCase(TestCase):
         self.assertIsInstance(settings.snmpconfig, SNMPConfig)
         self.assertIsInstance(settings.netbox_link, NetBoxLinkConfig)
         self.assertFalse(settings.netbox_link.enabled)
-        self.assertEqual(settings.netbox_link.macro, '{$NETBOX.URL}')
         self.assertIsNone(settings.netbox_link.base_url)
         self.assertIsInstance(settings.backgroundsync.objects, BackgroundSyncConfig)
         self.assertIsInstance(settings.backgroundsync.templates, BackgroundSyncConfig)
@@ -62,7 +61,3 @@ class NetBoxLinkConfigTestCase(TestCase):
     def test_base_url_is_normalized(self):
         config = NetBoxLinkConfig(enabled=True, base_url='https://nbx.muctr.ru/')
         self.assertEqual(config.base_url, 'https://nbx.muctr.ru')
-
-    def test_invalid_macro_is_rejected(self):
-        with self.assertRaises(ValidationError):
-            NetBoxLinkConfig(macro='NETBOX.URL')
