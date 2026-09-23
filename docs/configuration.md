@@ -41,7 +41,6 @@ The plugin is configuration to do exactly what you want, by means of the plugin 
     'netbox_link': {
         'enabled': False,
         'base_url': None,
-        'macro': '{$NETBOX.URL}',
     },
     'inheritance_chain': [
         ['role'],
@@ -164,7 +163,4 @@ For example:
 
 This value is required when `enabled` is `True`.
 
-#### macro
-
-Zabbix user macro used to store the direct NetBox URL. Defaults to
-`{$NETBOX.URL}`.
+The Zabbix host macro is fixed to `{$NETBOX.URL}`.
