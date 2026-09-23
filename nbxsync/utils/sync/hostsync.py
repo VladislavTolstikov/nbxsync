@@ -105,9 +105,12 @@ class HostSync(ZabbixSyncBase):
                 selectMacros=['macro', 'value', 'description', 'type'],
             )
         except Exception as exc:
-            raise RuntimeError(
-                f"Unable to read current Zabbix macros for hostid {self.obj.hostid}: {exc}"
-            ) from exc
+            logger.warning(
+                "Unable to preserve NetBox link macro for hostid %s: %s",
+                self.obj.hostid,
+                exc,
+            )
+            return None
 
         macros = current[0].get('macros', []) if current else []
         for macro in macros:
