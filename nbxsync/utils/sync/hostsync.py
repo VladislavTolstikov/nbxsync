@@ -149,7 +149,7 @@ class HostSync(ZabbixSyncBase):
         if config is None:
             return macros
 
-        macro_name = config.macro
+        macro_name = '{$NETBOX.URL}'
         result = [m for m in macros if m.get('macro') != macro_name]
 
         if config.enabled:
