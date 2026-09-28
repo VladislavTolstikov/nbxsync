@@ -185,7 +185,7 @@ class HostSync(ZabbixSyncBase):
         self.verify_maintenancewindow()
 
         nb_name = str(self.obj.assigned_object)
-        host_value = nb_name
+        host_value = self.sanitize_string(nb_name)[:64]
 
         # custom field into Zabbix description
         zbx_description = ""
@@ -228,8 +228,10 @@ class HostSync(ZabbixSyncBase):
             **templates_clear,
         }
 
-        # Host name is owned by NetBox and must follow the object name exactly.
-        # Visible name remains under Zabbix control after host creation.
+        # Existing Zabbix host names may contain legacy values that the
+        # current Zabbix API no longer accepts. Do not resend or rename them.
+        # Visible name also remains under Zabbix control after creation.
+        params.pop("host", None)
         params.pop("name", None)
         params["hostid"] = self.obj.hostid
 
