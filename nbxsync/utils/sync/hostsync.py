@@ -94,6 +94,42 @@ class HostSync(ZabbixSyncBase):
     def get_name_value(self):
         return self.obj.assigned_object.name
 
+    def _netbox_host_name(self) -> str:
+        """Return the exact NetBox name when it is valid as a Zabbix host name."""
+        name = str(self.obj.assigned_object)
+
+        if not name or name != name.strip() or not re.fullmatch(r"[0-9A-Za-z_. \-]+", name):
+            raise RuntimeError(
+                f"NetBox name {name!r} cannot be used as a Zabbix Host name "
+                "without changing it. Rename the NetBox object to a Zabbix-valid "
+                "host name (ASCII letters/digits, spaces, dots, dashes, underscores)."
+            )
+
+        return name
+
+    def _current_host_identity(self) -> tuple[str, str]:
+        """Fetch current technical and visible names from Zabbix."""
+        if not self.obj.hostid:
+            return "", ""
+
+        current = self.api.host.get(
+            output=["hostid", "host", "name"],
+            hostids=[self.obj.hostid],
+        )
+        if not current:
+            raise RuntimeError(
+                f"Unable to read current Zabbix host identity for hostid {self.obj.hostid}"
+            )
+
+        host = current[0].get("host")
+        name = current[0].get("name")
+        if host is None or name is None:
+            raise RuntimeError(
+                f"Zabbix did not return host/name for hostid {self.obj.hostid}"
+            )
+
+        return str(host), str(name)
+
     def _current_host_macro(self, macro_name: str):
         if not self.obj.hostid:
             return None
@@ -184,7 +220,7 @@ class HostSync(ZabbixSyncBase):
 
         self.verify_maintenancewindow()
 
-        nb_name = str(self.obj.assigned_object)
+        nb_name = self._netbox_host_name()
         host_value = nb_name
 
         # custom field into Zabbix description
@@ -228,9 +264,15 @@ class HostSync(ZabbixSyncBase):
             **templates_clear,
         }
 
-        # Host name is owned by NetBox and must follow the object name exactly.
-        # Visible name remains under Zabbix control after host creation.
-        params.pop("name", None)
+        # Technical Host name is owned by NetBox.
+        # Visible name follows Host name only while it is still at its default
+        # value. A manual Visible name override in Zabbix must survive sync.
+        current_host, current_name = self._current_host_identity()
+        if current_name == current_host:
+            params["name"] = params["host"]
+        else:
+            params["name"] = current_name
+
         params["hostid"] = self.obj.hostid
 
         # merge tags
