@@ -96,7 +96,7 @@ class HostSync(ZabbixSyncBase):
 
     def _netbox_host_name(self) -> str:
         """Return the exact NetBox name when it is valid as a Zabbix host name."""
-        name = str(self.obj.assigned_object)
+        name = str(self.obj.assigned_object.name)
 
         if not name or name != name.strip() or not re.fullmatch(r"[0-9A-Za-z_. \-]+", name):
             raise RuntimeError(
