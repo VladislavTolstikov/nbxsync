@@ -38,6 +38,10 @@ The plugin is configuration to do exactly what you want, by means of the plugin 
         'snmp_authpass': '{$SNMP_AUTHPASS}',
         'snmp_privpass': '{$SNMP_PRIVPASS}',
     },
+    'netbox_link': {
+        'enabled': False,
+        'base_url': None,
+    },
     'inheritance_chain': [
         ['role'],
         ['role', 'parent'],
@@ -134,3 +138,29 @@ Defines the value to be set to the no_alerting_tag. Defaults to '1'
 
 This sets the value of the duration of the maintenance window that is automatically created when a host has the status 'enabled_in_maintenance'
 Is defined in seconds; defaults to 3600 (1 hour)
+
+
+### netbox_link
+
+Optionally synchronizes a direct NetBox object URL into a Zabbix host macro.
+
+#### enabled
+
+When `True`, nbxSync manages the configured host macro and keeps it equal to the
+direct URL of the NetBox object. When `False`, nbxSync does not manage the value;
+if the macro already exists on a Zabbix host it is preserved during host updates.
+
+Defaults to `False`.
+
+#### base_url
+
+Public/browser base URL of the NetBox instance, without a required trailing slash.
+For example:
+
+```python
+'base_url': 'https://nbx.muctr.ru',
+```
+
+This value is required when `enabled` is `True`.
+
+The Zabbix host macro is fixed to `{$NETBOX.URL}`.
