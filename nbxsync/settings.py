@@ -38,18 +38,6 @@ class SNMPConfig(BaseModel):
         return v
 
 
-class NetBoxLinkConfig(BaseModel):
-    enabled: bool = Field(default=False)
-    base_url: Optional[str] = Field(default=None)
-
-    @field_validator('base_url', mode='before')
-    def normalize_base_url(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return None
-        value = str(v).strip().rstrip('/')
-        return value or None
-
-
 class BackgroundSyncConfig(BaseModel):
     enabled: bool = Field(default=True)
     interval: int = Field(default=60)
@@ -66,7 +54,6 @@ class PluginSettingsModel(BaseModel):
     sot: SoTConfig = SoTConfig()
     statusmapping: StatusMapping = Field(default_factory=StatusMapping)
     snmpconfig: SNMPConfig = Field(default_factory=SNMPConfig)
-    netbox_link: NetBoxLinkConfig = Field(default_factory=NetBoxLinkConfig)
     backgroundsync: BackgroundSync = Field(default_factory=BackgroundSync)
     inheritance_chain: List[Tuple[str, ...]] = Field(
         default_factory=lambda: [

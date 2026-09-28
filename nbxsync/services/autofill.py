@@ -22,7 +22,6 @@ from nbxsync.models import (
     ZabbixTemplate,
     ZabbixTemplateAssignment,
 )
-from nbxsync.utils.zabbix_description import ensure_cf_zabbix_description
 
 
 class AutofillError(Exception):
@@ -410,6 +409,5 @@ def fill_nbxsync_device(device) -> AutofillResult:
         _ensure_templates(device, ct, servers[target.server_id], templates, rule, result)
 
     _ensure_inventory(device, ct, result)
-    ensure_cf_zabbix_description(device)
     result.warnings.append(f'Mapping: {rule.source or "approved table"}.')
     return result

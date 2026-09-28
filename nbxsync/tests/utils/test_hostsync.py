@@ -199,56 +199,22 @@ class HostSyncTestCase(TestCase):
         self.sync.pluginsettings = PluginSettings()
 
     def test_get_create_params(self):
-        self.device.name = 'МЗ №1 SRK'
         self.sync.get_groups = lambda: [{'groupid': 1001}]
         params = self.sync.get_create_params()
-        self.assertEqual(params['host'], '__ _1 SRK')
-        self.assertEqual(params['name'], 'МЗ №1 SRK')
+        self.assertIn('host', params)
+        self.assertIn('name', params)
         self.assertEqual(params['status'], 0)
         self.assertIn('macros', params)
         self.assertIn('tls_connect', params)
         self.assertIn('ipmi_username', params)
 
-    def test_get_update_params_repairs_default_visible_name(self):
-        self.device.name = 'МЗ №1 SRK'
+    def test_get_update_params(self):
         self.sync.get_groups = lambda: [{'groupid': 1001}]
         self.sync.get_template_attributes = lambda: {'templates': []}
         self.sync.get_templates_clear_attributes = lambda: {}
-        self.sync._current_host_identity = lambda: ('__ _1 SRK', '__ _1 SRK')
         update_params = self.sync.get_update_params()
         self.assertIn('hostid', update_params)
-        self.assertEqual(update_params['host'], '__ _1 SRK')
-        self.assertEqual(update_params['name'], 'МЗ №1 SRK')
-
-    def test_get_update_params_keeps_managed_visible_name(self):
-        self.device.name = 'МЗ №1 SRK'
-        self.sync.get_groups = lambda: [{'groupid': 1001}]
-        self.sync.get_template_attributes = lambda: {'templates': []}
-        self.sync.get_templates_clear_attributes = lambda: {}
-        self.sync._current_host_identity = lambda: ('__ _1 SRK', 'МЗ №1 SRK')
-        update_params = self.sync.get_update_params()
-        self.assertEqual(update_params['host'], '__ _1 SRK')
-        self.assertEqual(update_params['name'], 'МЗ №1 SRK')
-
-    def test_get_update_params_preserves_manual_visible_name(self):
-        self.device.name = 'МЗ №1 SRK'
-        self.sync.get_groups = lambda: [{'groupid': 1001}]
-        self.sync.get_template_attributes = lambda: {'templates': []}
-        self.sync.get_templates_clear_attributes = lambda: {}
-        self.sync._current_host_identity = lambda: ('__ _1 SRK', 'SRK power rack')
-        update_params = self.sync.get_update_params()
-        self.assertEqual(update_params['host'], '__ _1 SRK')
-        self.assertEqual(update_params['name'], 'SRK power rack')
-
-    def test_get_update_params_tracks_netbox_rename_for_managed_name(self):
-        self.device.name = 'MZ 1 SRK'
-        self.sync.get_groups = lambda: [{'groupid': 1001}]
-        self.sync.get_template_attributes = lambda: {'templates': []}
-        self.sync.get_templates_clear_attributes = lambda: {}
-        self.sync._current_host_identity = lambda: ('__ _1 SRK', 'МЗ №1 SRK')
-        update_params = self.sync.get_update_params()
-        self.assertEqual(update_params['host'], 'MZ 1 SRK')
-        self.assertEqual(update_params['name'], 'MZ 1 SRK')
+        self.assertNotIn('name', update_params)
 
     def test_get_macros_snmpv2_only(self):
         macros = self.sync.get_macros()

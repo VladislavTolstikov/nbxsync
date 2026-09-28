@@ -94,112 +94,6 @@ class HostSync(ZabbixSyncBase):
     def get_name_value(self):
         return self.obj.assigned_object.name
 
-    def _netbox_host_names(self) -> tuple[str, str]:
-        """Return Zabbix technical host and visible name derived from NetBox."""
-        visible_name = str(self.obj.assigned_object.name)
-        technical_host = self.sanitize_string(visible_name)[:64]
-        return technical_host, visible_name
-
-    def _current_host_identity(self) -> tuple[str, str]:
-        """Fetch current technical and visible names from Zabbix."""
-        if not self.obj.hostid:
-            return "", ""
-
-        current = self.api.host.get(
-            output=["hostid", "host", "name"],
-            hostids=[self.obj.hostid],
-        )
-        if not current:
-            raise RuntimeError(
-                f"Unable to read current Zabbix host identity for hostid {self.obj.hostid}"
-            )
-
-        host = current[0].get("host")
-        name = current[0].get("name")
-        if host is None or name is None:
-            raise RuntimeError(
-                f"Zabbix did not return host/name for hostid {self.obj.hostid}"
-            )
-
-        return str(host), str(name)
-
-    def _current_host_macro(self, macro_name: str):
-        if not self.obj.hostid:
-            return None
-
-        try:
-            current = self.api.host.get(
-                output=['hostid'],
-                hostids=self.obj.hostid,
-                selectMacros=['macro', 'value', 'description', 'type'],
-            )
-        except Exception as exc:
-            logger.warning(
-                "Unable to preserve NetBox link macro for hostid %s: %s",
-                self.obj.hostid,
-                exc,
-            )
-            return None
-
-        macros = current[0].get('macros', []) if current else []
-        for macro in macros:
-            if macro.get('macro') == macro_name:
-                return {
-                    'macro': macro_name,
-                    'value': macro.get('value', ''),
-                    'description': macro.get('description', ''),
-                    'type': int(macro.get('type', 0)),
-                }
-
-        return None
-
-    def _netbox_link_url(self) -> str:
-        config = self.pluginsettings.netbox_link
-        if not config.base_url:
-            raise RuntimeError(
-                "netbox_link.enabled is true but netbox_link.base_url is not configured"
-            )
-
-        assigned = self.obj.assigned_object
-        try:
-            path = assigned.get_absolute_url()
-        except Exception as exc:
-            raise RuntimeError(
-                f"Unable to resolve NetBox URL for {assigned}: {exc}"
-            ) from exc
-
-        if not path:
-            raise RuntimeError(f"Unable to resolve NetBox URL for {assigned}: empty path")
-
-        return f"{config.base_url.rstrip('/')}/{str(path).lstrip('/')}"
-
-    def _apply_netbox_link_macro(self, macros: list) -> list:
-        config = getattr(self.pluginsettings, 'netbox_link', None)
-        if config is None:
-            return macros
-
-        macro_name = '{$NETBOX.URL}'
-        result = [m for m in macros if m.get('macro') != macro_name]
-
-        if config.enabled:
-            result.append(
-                {
-                    'macro': macro_name,
-                    'value': self._netbox_link_url(),
-                    'description': 'NetBox object URL',
-                    'type': 0,
-                }
-            )
-            return result
-
-        # Disabled means "do not touch". host.update() replaces the host macro
-        # set, so preserve the current value explicitly if it already exists.
-        current = self._current_host_macro(macro_name)
-        if current:
-            result.append(current)
-
-        return result
-
     # -------- host.create() parameters --------
     def get_create_params(self) -> dict:
         status = self.obj.assigned_object.status
@@ -213,7 +107,8 @@ class HostSync(ZabbixSyncBase):
 
         self.verify_maintenancewindow()
 
-        host_value, nb_name = self._netbox_host_names()
+        nb_name = str(self.obj.assigned_object)
+        host_value = self.sanitize_string(nb_name)[:64]
 
         # custom field into Zabbix description
         zbx_description = ""
@@ -256,22 +151,9 @@ class HostSync(ZabbixSyncBase):
             **templates_clear,
         }
 
-        # Technical host follows the historical nbxsync rule: sanitized
-        # NetBox name. Visible name is normally the original NetBox name.
-        #
-        # host.update() may reset Visible name when "host" is changed, so always
-        # send "name" explicitly. Treat the current Visible name as managed by
-        # nbxsync when it is either equal to the technical host (Zabbix default /
-        # the 2026-09-28 regression) or sanitizes back to that host. Otherwise it
-        # is considered a manual Zabbix override and must be preserved.
-        current_host, current_name = self._current_host_identity()
-        current_name_host = self.sanitize_string(current_name)[:64]
-
-        if current_name == current_host or current_name_host == current_host:
-            params["name"] = str(self.obj.assigned_object.name)
-        else:
-            params["name"] = current_name
-
+        # Visible name is owned by Zabbix after host creation.
+        # Do not overwrite manual changes during host.update().
+        params.pop("name", None)
         params["hostid"] = self.obj.hostid
 
         # merge tags
@@ -502,8 +384,7 @@ class HostSync(ZabbixSyncBase):
             if m["macro"] == snmpconf.snmp_community:
                 snmp_macros = [x for x in snmp_macros if x["macro"] != snmpconf.snmp_community]
 
-        macros = self._apply_netbox_link_macro(all_macros + snmp_macros)
-        return {"macros": macros}
+        return {"macros": all_macros + snmp_macros}
 
     def get_hostinterface_attributes(self) -> dict:
         result = {}
