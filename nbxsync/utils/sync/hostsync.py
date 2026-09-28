@@ -94,18 +94,11 @@ class HostSync(ZabbixSyncBase):
     def get_name_value(self):
         return self.obj.assigned_object.name
 
-    def _netbox_host_name(self) -> str:
-        """Return the exact NetBox name when it is valid as a Zabbix host name."""
-        name = str(self.obj.assigned_object.name)
-
-        if not name or name != name.strip() or not re.fullmatch(r"[0-9A-Za-z_. \-]+", name):
-            raise RuntimeError(
-                f"NetBox name {name!r} cannot be used as a Zabbix Host name "
-                "without changing it. Rename the NetBox object to a Zabbix-valid "
-                "host name (ASCII letters/digits, spaces, dots, dashes, underscores)."
-            )
-
-        return name
+    def _netbox_host_names(self) -> tuple[str, str]:
+        """Return Zabbix technical host and visible name derived from NetBox."""
+        visible_name = str(self.obj.assigned_object.name)
+        technical_host = self.sanitize_string(visible_name)[:64]
+        return technical_host, visible_name
 
     def _current_host_identity(self) -> tuple[str, str]:
         """Fetch current technical and visible names from Zabbix."""
@@ -220,8 +213,7 @@ class HostSync(ZabbixSyncBase):
 
         self.verify_maintenancewindow()
 
-        nb_name = self._netbox_host_name()
-        host_value = nb_name
+        host_value, nb_name = self._netbox_host_names()
 
         # custom field into Zabbix description
         zbx_description = ""
@@ -264,12 +256,19 @@ class HostSync(ZabbixSyncBase):
             **templates_clear,
         }
 
-        # Technical Host name is owned by NetBox.
-        # Visible name follows Host name only while it is still at its default
-        # value. A manual Visible name override in Zabbix must survive sync.
+        # Technical host follows the historical nbxsync rule: sanitized
+        # NetBox name. Visible name is normally the original NetBox name.
+        #
+        # host.update() may reset Visible name when "host" is changed, so always
+        # send "name" explicitly. Treat the current Visible name as managed by
+        # nbxsync when it is either equal to the technical host (Zabbix default /
+        # the 2026-09-28 regression) or sanitizes back to that host. Otherwise it
+        # is considered a manual Zabbix override and must be preserved.
         current_host, current_name = self._current_host_identity()
-        if current_name == current_host:
-            params["name"] = params["host"]
+        current_name_host = self.sanitize_string(current_name)[:64]
+
+        if current_name == current_host or current_name_host == current_host:
+            params["name"] = str(self.obj.assigned_object.name)
         else:
             params["name"] = current_name
 
