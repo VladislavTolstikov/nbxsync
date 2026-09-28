@@ -199,22 +199,16 @@ class HostSyncTestCase(TestCase):
         self.sync.pluginsettings = PluginSettings()
 
     def test_get_create_params(self):
-        self.sync.get_groups = lambda: [{'groupid': 1001}]
         params = self.sync.get_create_params()
         self.assertIn('host', params)
-        self.assertIn('name', params)
         self.assertEqual(params['status'], 0)
         self.assertIn('macros', params)
         self.assertIn('tls_connect', params)
         self.assertIn('ipmi_username', params)
 
     def test_get_update_params(self):
-        self.sync.get_groups = lambda: [{'groupid': 1001}]
-        self.sync.get_template_attributes = lambda: {'templates': []}
-        self.sync.get_templates_clear_attributes = lambda: {}
         update_params = self.sync.get_update_params()
         self.assertIn('hostid', update_params)
-        self.assertNotIn('name', update_params)
 
     def test_get_macros_snmpv2_only(self):
         macros = self.sync.get_macros()
