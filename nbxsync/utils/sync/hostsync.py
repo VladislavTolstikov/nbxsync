@@ -228,8 +228,9 @@ class HostSync(ZabbixSyncBase):
             **templates_clear,
         }
 
-        # Visible name is owned by Zabbix after host creation.
-        # Do not overwrite manual changes during host.update().
+        # Host name and visible name are owned by Zabbix after host creation.
+        # Do not overwrite existing/manual names during host.update().
+        params.pop("host", None)
         params.pop("name", None)
         params["hostid"] = self.obj.hostid
 
