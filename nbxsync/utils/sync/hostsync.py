@@ -150,6 +150,11 @@ class HostSync(ZabbixSyncBase):
             **self.templates,
             **templates_clear,
         }
+
+        # Existing technical Host name may contain legacy characters that the
+        # current Zabbix API refuses to accept on update. Do not rewrite it
+        # during sync. Visible name remains sourced from NetBox.
+        params.pop("host", None)
         params["hostid"] = self.obj.hostid
 
         # merge tags
