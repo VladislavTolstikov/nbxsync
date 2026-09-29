@@ -94,6 +94,28 @@ class HostSync(ZabbixSyncBase):
     def get_name_value(self):
         return self.obj.assigned_object.name
 
+    def _get_current_visible_name(self) -> str:
+        """Return the current Zabbix Visible name for an existing host."""
+        current = self.api.host.get(
+            hostids=[self.obj.hostid],
+            output=["hostid", "name"],
+        )
+
+        if len(current) != 1:
+            raise RuntimeError(
+                f"Unable to read current Zabbix Visible name "
+                f"for hostid {self.obj.hostid}"
+            )
+
+        name = current[0].get("name")
+        if name is None:
+            raise RuntimeError(
+                f"Zabbix did not return Visible name "
+                f"for hostid {self.obj.hostid}"
+            )
+
+        return str(name)
+
     # -------- host.create() parameters --------
     def get_create_params(self) -> dict:
         status = self.obj.assigned_object.status
@@ -151,10 +173,10 @@ class HostSync(ZabbixSyncBase):
             **templates_clear,
         }
 
-        # Existing technical Host name may contain legacy characters that the
-        # current Zabbix API refuses to accept on update. Do not rewrite it
-        # during sync. Visible name remains sourced from NetBox.
-        params.pop("host", None)
+        # Technical Host name is always derived from NetBox.
+        # Visible name is initialized from NetBox only on create and is
+        # preserved from Zabbix on every subsequent sync.
+        params["name"] = self._get_current_visible_name()
         params["hostid"] = self.obj.hostid
 
         # merge tags

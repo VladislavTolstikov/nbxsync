@@ -199,18 +199,29 @@ class HostSyncTestCase(TestCase):
         self.sync.pluginsettings = PluginSettings()
 
     def test_get_create_params(self):
+        self.device.name = 'МЗ №1 SRK'
         params = self.sync.get_create_params()
-        self.assertIn('host', params)
+        self.assertEqual(params['host'], '__ _1 SRK')
+        self.assertEqual(params['name'], 'МЗ №1 SRK')
         self.assertEqual(params['status'], 0)
         self.assertIn('macros', params)
         self.assertIn('tls_connect', params)
         self.assertIn('ipmi_username', params)
 
     def test_get_update_params(self):
+        self.device.name = 'МЗ №1 SRK'
+        self.sync._get_current_visible_name = lambda: 'СРК машинный зал №1'
         update_params = self.sync.get_update_params()
         self.assertIn('hostid', update_params)
-        self.assertNotIn('host', update_params)
-        self.assertIn('name', update_params)
+        self.assertEqual(update_params['host'], '__ _1 SRK')
+        self.assertEqual(update_params['name'], 'СРК машинный зал №1')
+
+    def test_netbox_rename_updates_host_but_not_visible_name(self):
+        self.device.name = 'МЗ №2 SRK'
+        self.sync._get_current_visible_name = lambda: 'СРК машинный зал №1'
+        update_params = self.sync.get_update_params()
+        self.assertEqual(update_params['host'], '__ _2 SRK')
+        self.assertEqual(update_params['name'], 'СРК машинный зал №1')
 
     def test_get_macros_snmpv2_only(self):
         macros = self.sync.get_macros()
