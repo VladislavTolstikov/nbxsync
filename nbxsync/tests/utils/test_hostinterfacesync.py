@@ -121,6 +121,67 @@ class HostInterfaceSyncTests(TestCase):
         params = sync.get_update_params()
         self.assertEqual(params['interfaceid'], 222)
 
+    def test_sync_recovers_stale_interfaceid_from_foreign_host(self):
+        self.hostinterface.type = ZabbixHostInterfaceTypeChoices.SNMP
+        self.hostinterface.port = 161
+        self.hostinterface.snmp_version = 2
+        self.hostinterface.snmp_usebulk = True
+        self.hostinterface.snmp_community = 'public'
+        self.hostinterface.interfaceid = 4267
+        self.hostinterface.save()
+
+        api = MagicMock()
+
+        def get_interface(**kwargs):
+            if kwargs.get('interfaceids') == 4267:
+                return [
+                    {
+                        'interfaceid': '4267',
+                        'hostid': '99999',
+                    }
+                ]
+            if kwargs.get('interfaceids') == 2116:
+                return [
+                    {
+                        'interfaceid': '2116',
+                        'hostid': '10101',
+                    }
+                ]
+            if str(kwargs.get('hostids')) == '10101':
+                return [
+                    {
+                        'interfaceid': '2116',
+                        'hostid': '10101',
+                        'main': '1',
+                        'type': '2',
+                        'useip': '1',
+                        'ip': '10.1.1.1',
+                        'dns': '',
+                        'port': '161',
+                        'details': {
+                            'version': '2',
+                            'bulk': '1',
+                            'community': 'public',
+                        },
+                    }
+                ]
+            return []
+
+        api.hostinterface.get.side_effect = get_interface
+
+        sync = HostInterfaceSync(api=api, netbox_obj=self.hostinterface)
+        sync.context = {'hostid': '10101'}
+        sync.sync()
+
+        self.hostinterface.refresh_from_db()
+        self.assertEqual(self.hostinterface.interfaceid, 2116)
+        self.assertTrue(self.hostinterface.last_sync_state)
+        api.hostinterface.update.assert_called_once()
+        self.assertEqual(
+            api.hostinterface.update.call_args.kwargs['interfaceid'],
+            2116,
+        )
+
     def test_sync_from_zabbix_sets_fields(self):
         data = {
             'interfaceid': 123,

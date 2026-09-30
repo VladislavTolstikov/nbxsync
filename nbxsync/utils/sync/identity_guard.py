@@ -87,7 +87,6 @@ def install(HostSync, HostInterfaceSync):
     original_host_sync = HostSync.sync
     original_host_set_id = HostSync.set_id
     original_get_tag_attributes = HostSync.get_tag_attributes
-    original_interface_sync = HostInterfaceSync.sync
     original_set_interfaceid = HostInterfaceSync._set_interfaceid
 
     def guarded_get_tag_attributes(self):
@@ -299,20 +298,9 @@ def install(HostSync, HostInterfaceSync):
 
             return original_set_interfaceid(self, interfaceid)
 
-    def guarded_interface_sync(self, obj_id=None):
-        if self.obj.interfaceid:
-            try:
-                guarded_set_interfaceid(self, self.obj.interfaceid)
-            except Exception as err:
-                self.obj.update_sync_info(success=False, message=str(err))
-                return
-
-        return original_interface_sync(self, obj_id=obj_id)
-
     HostSync.get_tag_attributes = guarded_get_tag_attributes
     HostSync.set_id = guarded_host_set_id
     HostSync._create_host = guarded_create_host
     HostSync.sync = guarded_host_sync
     HostInterfaceSync._set_interfaceid = guarded_set_interfaceid
-    HostInterfaceSync.sync = guarded_interface_sync
     HostSync._identity_guard_installed = True
