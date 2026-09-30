@@ -4,7 +4,13 @@ from django.test import TestCase
 from pydantic import ValidationError
 
 from nbxsync.choices.syncsot import SyncSOT
-from nbxsync.settings import PluginSettingsModel, SNMPConfig, BackgroundSyncConfig, get_plugin_settings
+from nbxsync.settings import (
+    BackgroundSyncConfig,
+    NetBoxLinkConfig,
+    PluginSettingsModel,
+    SNMPConfig,
+    get_plugin_settings,
+)
 
 
 class PluginSettingsModelTestCase(TestCase):
@@ -15,6 +21,9 @@ class PluginSettingsModelTestCase(TestCase):
         self.assertIsInstance(settings.statusmapping.device, dict)
         self.assertIsInstance(settings.statusmapping.virtualmachine, dict)
         self.assertIsInstance(settings.snmpconfig, SNMPConfig)
+        self.assertIsInstance(settings.netbox_link, NetBoxLinkConfig)
+        self.assertFalse(settings.netbox_link.enabled)
+        self.assertIsNone(settings.netbox_link.base_url)
         self.assertIsInstance(settings.backgroundsync.objects, BackgroundSyncConfig)
         self.assertIsInstance(settings.backgroundsync.templates, BackgroundSyncConfig)
         self.assertIsInstance(settings.backgroundsync.proxies, BackgroundSyncConfig)
@@ -46,3 +55,9 @@ class PluginSettingsModelTestCase(TestCase):
 
         settings = get_plugin_settings()
         self.assertIsInstance(settings, PluginSettingsModel)
+
+
+class NetBoxLinkConfigTestCase(TestCase):
+    def test_base_url_is_normalized(self):
+        config = NetBoxLinkConfig(enabled=True, base_url='https://nbx.muctr.ru/')
+        self.assertEqual(config.base_url, 'https://nbx.muctr.ru')
