@@ -9,7 +9,7 @@ DEVICE_DISABLED_STATUSES = frozenset({
     'inventory',
     'decommissioning',
 })
-DEVICE_SYNC_STATUSES = frozenset({'active'}) | DEVICE_DISABLED_STATUSES
+DEVICE_SYNC_STATUSES = frozenset({'active', 'staged', 'planned'})
 
 
 def status_slug(instance) -> str:
