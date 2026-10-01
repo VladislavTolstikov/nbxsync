@@ -19,8 +19,8 @@ def _iter_filtered_assignments(zabbixserver) -> Iterable[ZabbixServerAssignment]
 
     The selected assignment belongs to the Sync All server, but the downstream
     object job synchronizes the NetBox object to all of its Zabbix assignments.
-    Deletion candidates are yielded even without an IP. Active/staged/planned
-    hosts still require an address before a normal host sync is attempted.
+    Deletion candidates are yielded even without an IP. Retained hosts with an
+    assignment still require an address before a normal host sync is attempted.
     """
     qs = ZabbixServerAssignment.objects.filter(zabbixserver=zabbixserver).select_related(
         'assigned_object_type'

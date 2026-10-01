@@ -33,8 +33,8 @@ class DesiredHostStatusTests(SimpleTestCase):
             ZabbixHostStatus.ENABLED,
         )
 
-    def test_staged_and_planned_are_disabled(self):
-        for status in ('staged', 'planned'):
+    def test_retained_inactive_statuses_are_disabled(self):
+        for status in ('staged', 'planned', 'failed', 'inventory', 'decommissioning'):
             with self.subTest(status=status):
                 self.assertEqual(
                     desired_host_status(self.device(status)),
@@ -42,7 +42,7 @@ class DesiredHostStatusTests(SimpleTestCase):
                 )
 
     def test_every_other_device_status_is_deleted(self):
-        for status in ('offline', 'decommissioning', 'under-replacement', 'anything-custom'):
+        for status in ('offline', 'under-replacement', 'anything-custom'):
             with self.subTest(status=status):
                 self.assertEqual(
                     desired_host_status(self.device(status)),
@@ -100,7 +100,7 @@ class ReconcileManagedHostsTests(TestCase):
 
     @patch('nbxsync.services.reconcile.ZabbixConnection')
     def test_deleted_status_orphan_is_deleted_and_interface_id_cleared(self, mock_connection):
-        self.device.status = 'decommissioning'
+        self.device.status = 'offline'
         self.device.save()
 
         interface = ZabbixHostInterface.objects.create(
@@ -127,7 +127,7 @@ class ReconcileManagedHostsTests(TestCase):
 
     @patch('nbxsync.services.reconcile.ZabbixConnection')
     def test_deleted_status_with_assignment_but_missing_hostid_is_deleted(self, mock_connection):
-        self.device.status = 'decommissioning'
+        self.device.status = 'offline'
         self.device.save()
         assignment = ZabbixServerAssignment.objects.create(
             zabbixserver=self.server,
