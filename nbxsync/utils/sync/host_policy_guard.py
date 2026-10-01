@@ -3,7 +3,7 @@ from nbxsync.services.host_policy import desired_host_status
 
 
 def install(HostSync):
-    """Enforce active/staged/planned Device state in HostSync parameters.
+    """Enforce authoritative Device lifecycle state in HostSync parameters.
 
     DELETED lifecycle objects are intercepted by SyncHostJob/reconciliation before
     HostSync create/update is called. We deliberately leave that branch to the
