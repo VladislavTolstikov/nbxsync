@@ -57,6 +57,35 @@ class ReconcileLifecycleEnforcementTests(TestCase):
         api.host.update.assert_called_once_with(hostid='5001', status=1)
         api.host.delete.assert_not_called()
 
+
+    @patch('nbxsync.services.reconcile.device_is_auto_managed_on_server', return_value=True)
+    @patch('nbxsync.services.reconcile.ZabbixConnection')
+    def test_retained_inactive_orphans_are_disabled(
+        self,
+        mock_connection,
+        mock_managed,
+    ):
+        for index, status in enumerate(('failed', 'inventory', 'decommissioning'), start=1):
+            with self.subTest(status=status):
+                self.device.status = status
+                self.device.save()
+
+                api = MagicMock()
+                api.host.get.return_value = [
+                    {
+                        'hostid': f'510{index}',
+                        'host': self.device.name,
+                        'status': '0',
+                        'tags': self.tags(),
+                    },
+                ]
+                mock_connection.return_value.__enter__.return_value = api
+
+                reconcile_managed_hosts(self.server.pk)
+
+                api.host.update.assert_called_once_with(hostid=f'510{index}', status=1)
+                api.host.delete.assert_not_called()
+
     @patch('nbxsync.services.reconcile.device_is_auto_managed_on_server', return_value=True)
     @patch('nbxsync.services.reconcile.ZabbixConnection')
     def test_active_orphan_is_enabled_even_without_assignment(
