@@ -2,7 +2,14 @@ from nbxsync.choices.zabbixstatus import ZabbixHostStatus
 from nbxsync.settings import get_plugin_settings
 
 
-DEVICE_SYNC_STATUSES = frozenset({'active', 'staged', 'planned'})
+DEVICE_DISABLED_STATUSES = frozenset({
+    'staged',
+    'planned',
+    'failed',
+    'inventory',
+    'decommissioning',
+})
+DEVICE_SYNC_STATUSES = frozenset({'active'}) | DEVICE_DISABLED_STATUSES
 
 
 def status_slug(instance) -> str:
@@ -16,7 +23,7 @@ def desired_host_status(instance):
     Device lifecycle is a hard policy and deliberately does not depend on a
     deployment override of statusmapping:
       active -> enabled
-      staged/planned -> disabled
+      staged/planned/failed/inventory/decommissioning -> disabled
       every other Device status -> deleted
 
     Non-Device objects retain the plugin's configurable status mapping.
@@ -27,7 +34,7 @@ def desired_host_status(instance):
     if object_type == 'device':
         if slug == 'active':
             return ZabbixHostStatus.ENABLED
-        if slug in {'staged', 'planned'}:
+        if slug in DEVICE_DISABLED_STATUSES:
             return ZabbixHostStatus.DISABLED
         return ZabbixHostStatus.DELETED
 
