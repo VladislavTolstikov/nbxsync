@@ -65,9 +65,9 @@ def device_is_auto_managed_on_server(device, server_id):
 def ensure_device_assignment_for_server(device, zabbixserver) -> bool:
     """Create local NbxSync config for one auto-managed Device/server pair.
 
-    This is used by the periodic background preparation. It accepts every
-    Device lifecycle state that should retain a Zabbix host, while the UI
-    Fill NbxSync action remains active-only.
+    This is used by the periodic background preparation. It accepts active,
+    staged and planned devices, while the UI Fill NbxSync action remains
+    active-only.
     """
     if status_slug(device) not in DEVICE_SYNC_STATUSES:
         return False
@@ -161,7 +161,7 @@ def ensure_device_assignments(device) -> int:
 
 
 def prepare_server_assignments(zabbixserver) -> int:
-    """Ensure assignments for all auto-managed Devices that retain Zabbix hosts."""
+    """Ensure assignments for all auto-managed active/staged/planned Devices."""
     prepared = 0
     devices = (
         Device.objects.filter(status__in=DEVICE_SYNC_STATUSES)
