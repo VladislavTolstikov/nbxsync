@@ -650,7 +650,14 @@ class HostSync(ZabbixSyncBase):
         if hi:
             mode = hi.inventory_mode or 0
             for k, (val, ok) in hi.render_all_fields().items():
-                if ok and val:
+                if not ok:
+                    continue
+
+                # Unconfigured Inventory fields remain untouched, but a
+                # configured field/template that renders to an empty string
+                # must be sent to Zabbix to clear a stale value.
+                configured_value = getattr(hi, k, "")
+                if configured_value or val:
                     inv[k] = val
         r = {"inventory_mode": mode}
         if inv:
