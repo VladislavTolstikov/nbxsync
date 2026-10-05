@@ -556,6 +556,26 @@ class HostSyncTestCase(TestCase):
         self.assertNotIn('notes', result['inventory'])
         self.assertNotIn('location', result['inventory'])
 
+    def test_get_hostinventory_configured_template_can_clear_stale_value(self):
+        class DummyHostInventory:
+            def __init__(self):
+                self.inventory_mode = 1
+                self.location = '{% if object.rack %}{{ object.rack.name }}{% endif %}'
+
+            def render_all_fields(self):
+                return {
+                    'location': ('', True),
+                    'asset_tag': ('', True),
+                }
+
+        self.sync.all_objects['hostinventory'] = DummyHostInventory()
+
+        result = self.sync.get_hostinventory()
+
+        self.assertEqual(result['inventory_mode'], 1)
+        self.assertEqual(result['inventory'], {'location': ''})
+        self.assertNotIn('asset_tag', result['inventory'])
+
     def test_verify_hostinterfaces_skips_when_hostid_missing(self):
         self.obj.hostid = None  # Simulate no host ID
 
