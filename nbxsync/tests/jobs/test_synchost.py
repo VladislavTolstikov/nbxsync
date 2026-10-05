@@ -150,7 +150,7 @@ class SyncHostJobTestCase(TestCase):
         self.mock_api.host.delete.assert_called_once_with([12345])
 
     def test_retained_inactive_statuses_are_not_deleted(self):
-        for status in ('failed', 'inventory', 'decommissioning'):
+        for status in ('failed', 'inventory'):
             with self.subTest(status=status):
                 self.mock_api.reset_mock()
                 self.device.status = status
@@ -163,6 +163,19 @@ class SyncHostJobTestCase(TestCase):
                 self.assertTrue(
                     any(call.kwargs.get('status') == 1 for call in self.mock_api.host.update.call_args_list)
                 )
+
+    def test_decommissioning_status_is_enabled_and_not_deleted(self):
+        self.mock_api.reset_mock()
+        self.device.status = 'decommissioning'
+        self.device.save()
+
+        job = SyncHostJob(instance=self.device)
+        job.run()
+
+        self.mock_api.host.delete.assert_not_called()
+        self.assertTrue(
+            any(call.kwargs.get('status') == 0 for call in self.mock_api.host.update.call_args_list)
+        )
 
     def test_sync_host_with_no_proxy_or_group(self):
         self.zabbixserverassignment.zabbixproxy = None
