@@ -27,16 +27,14 @@ class DesiredHostStatusTests(SimpleTestCase):
             _meta=SimpleNamespace(model_name='device'),
         )
 
-    def test_active_and_decommissioning_are_enabled(self):
-        for status in ('active', 'decommissioning'):
-            with self.subTest(status=status):
-                self.assertEqual(
-                    desired_host_status(self.device(status)),
-                    ZabbixHostStatus.ENABLED,
-                )
+    def test_active_is_enabled(self):
+        self.assertEqual(
+            desired_host_status(self.device('active')),
+            ZabbixHostStatus.ENABLED,
+        )
 
     def test_retained_inactive_statuses_are_disabled(self):
-        for status in ('staged', 'planned', 'failed', 'inventory'):
+        for status in ('staged', 'planned', 'failed', 'inventory', 'decommissioning'):
             with self.subTest(status=status):
                 self.assertEqual(
                     desired_host_status(self.device(status)),

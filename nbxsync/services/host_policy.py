@@ -4,13 +4,13 @@ from nbxsync.settings import get_plugin_settings
 
 DEVICE_ENABLED_STATUSES = frozenset({
     'active',
-    'decommissioning',
 })
 DEVICE_DISABLED_STATUSES = frozenset({
     'staged',
     'planned',
     'failed',
     'inventory',
+    'decommissioning',
 })
 DEVICE_SYNC_STATUSES = frozenset({
     'active',
@@ -30,8 +30,8 @@ def desired_host_status(instance):
 
     Device lifecycle is a hard policy and deliberately does not depend on a
     deployment override of statusmapping:
-      active/decommissioning -> enabled
-      staged/planned/failed/inventory -> disabled
+      active -> enabled
+      staged/planned/failed/inventory/decommissioning -> disabled
       every other Device status -> deleted
 
     Non-Device objects retain the plugin's configurable status mapping.

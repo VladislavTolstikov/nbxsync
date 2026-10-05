@@ -164,7 +164,7 @@ class SyncHostJobTestCase(TestCase):
                     any(call.kwargs.get('status') == 1 for call in self.mock_api.host.update.call_args_list)
                 )
 
-    def test_decommissioning_status_is_enabled_and_not_deleted(self):
+    def test_decommissioning_status_is_disabled_and_not_deleted(self):
         self.mock_api.reset_mock()
         self.device.status = 'decommissioning'
         self.device.save()
@@ -174,7 +174,7 @@ class SyncHostJobTestCase(TestCase):
 
         self.mock_api.host.delete.assert_not_called()
         self.assertTrue(
-            any(call.kwargs.get('status') == 0 for call in self.mock_api.host.update.call_args_list)
+            any(call.kwargs.get('status') == 1 for call in self.mock_api.host.update.call_args_list)
         )
 
     def test_sync_host_with_no_proxy_or_group(self):

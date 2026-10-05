@@ -60,7 +60,7 @@ class NetboxZabbix(PluginConfig):
                 'staged': 'disabled',
                 'offline': 'deleted',
                 'inventory': 'deleted',
-                'decommissioning': 'enabled',
+                'decommissioning': 'disabled',
             },
             'virtualmachine': {
                 'offline': 'deleted',
