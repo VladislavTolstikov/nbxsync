@@ -177,6 +177,11 @@ def install(HostSync, HostInterfaceSync):
                 ) from err
 
             object_id = str(host["hostid"])
+            # Persist the recovered Zabbix identity before updating the host.
+            # HostSync.get_update_params() may issue API lookups via
+            # self.obj.hostid; leaving it empty produces hostids=[None] and,
+            # on Zabbix, an invalid SQL fragment such as "hostid IN ()".
+            self.set_id(object_id)
             self.sync_to_zabbix(object_id)
             return object_id
 
