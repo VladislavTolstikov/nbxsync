@@ -23,7 +23,7 @@ The plugin is configuration to do exactly what you want, by means of the plugin 
             'staged': 'disabled',
             'offline': 'deleted',
             'inventory': 'deleted',
-            'decommissioning': 'enabled',
+            'decommissioning': 'disabled',
         },
         'virtualmachine': {
             'offline': 'deleted',
