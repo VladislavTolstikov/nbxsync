@@ -64,4 +64,6 @@ class IdentityGuardDuplicateTests(TestCase):
         result = self.sync._create_host()
 
         self.assertEqual(result, '4002')
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.hostid, 4002)
         self.sync.sync_to_zabbix.assert_called_once_with('4002')
