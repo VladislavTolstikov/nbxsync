@@ -88,7 +88,7 @@ class ReconcileLifecycleEnforcementTests(TestCase):
 
     @patch('nbxsync.services.reconcile.device_is_auto_managed_on_server', return_value=True)
     @patch('nbxsync.services.reconcile.ZabbixConnection')
-    def test_decommissioning_orphan_is_enabled_even_without_assignment(
+    def test_decommissioning_orphan_is_disabled_even_without_assignment(
         self,
         mock_connection,
         mock_managed,
@@ -101,7 +101,7 @@ class ReconcileLifecycleEnforcementTests(TestCase):
             {
                 'hostid': '5199',
                 'host': self.device.name,
-                'status': '1',
+                'status': '0',
                 'tags': self.tags(),
             },
         ]
@@ -110,7 +110,7 @@ class ReconcileLifecycleEnforcementTests(TestCase):
         reconcile_managed_hosts(self.server.pk)
 
         mock_managed.assert_called_once_with(self.device, self.server.pk)
-        api.host.update.assert_called_once_with(hostid='5199', status=0)
+        api.host.update.assert_called_once_with(hostid='5199', status=1)
         api.host.delete.assert_not_called()
 
     @patch('nbxsync.services.reconcile.device_is_auto_managed_on_server', return_value=True)
