@@ -64,7 +64,7 @@ class TriggerHostSyncJobView(View):
             return _htmx_redirect(request, instance)
 
         messages.success(request, _('Sync job enqueued for %(name)s') % {'name': str(instance)})
-        queue = get_queue('low')
+        queue = get_queue('high')
         queue.enqueue_job(
             queue.create_job(
                 func='nbxsync.worker.synchost',
