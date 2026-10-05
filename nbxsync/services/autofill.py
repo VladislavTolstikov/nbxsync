@@ -96,6 +96,15 @@ ROLE_TYPE_MAP = {
     'server': 'SRV', 'guard_data': 'SRV', 'hvac': 'ENG',
     'san': 'SRV', 'srv-oth': 'SRV', 'mfu': 'HID', 'power': 'ENG',
 }
+ROLE_FUNCTIONAL_GROUP_MAP = {
+    'ap': 'AP',
+    'sw-l2': 'Switch',
+    'sw-l2-zk': 'Switch',
+    'switches': 'Switch',
+    'aggregation-switchboard': 'Switch',
+    'csw': 'Switch',
+    'sw-fc': 'Switch',
+}
 PASSIVE_ROLES = {
     'org', 'patch-panel', 'ethernet-plug', 'crs', 'mediaconverter',
     'poe-injector', 'hardwired-device', 'usb', 'mm-project', 'nbk',
@@ -255,12 +264,16 @@ def _preflight(device, rule: Rule):
 def _group_names(device, site_key: str, result: AutofillResult) -> tuple[str, ...]:
     role = _role(device)
     category = ROLE_TYPE_MAP.get(role)
+    functional_group = ROLE_FUNCTIONAL_GROUP_MAP.get(role)
     _, _, manufacturer, model = _manufacturer_model(device)
+    group_site = GROUP_SITE_MAP[site_key]
     names = []
     if category:
-        names.append(f'{category}/{GROUP_SITE_MAP[site_key]}')
+        names.append(f'{category}/{group_site}')
     else:
         result.warnings.append(f'No group category for role {role or "not set"}.')
+    if functional_group:
+        names.append(f'{functional_group}/{group_site}')
     if manufacturer and model:
         names.append(f'{manufacturer}/{model}')
     return tuple(dict.fromkeys(names))
