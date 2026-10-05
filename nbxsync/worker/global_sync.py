@@ -32,7 +32,7 @@ def _get_server(server_id: int):
         return None
 
 # Хосты, которые считаем "живыми" для синка
-ACTIVE_DEVICE_STATUSES = ("active", "staged")
+ACTIVE_DEVICE_STATUSES = ("active", "staged", "decommissioning")
 
 
 def _eligible_devices_for_server(zabbixserver: ZabbixServer) -> QuerySet[Device]:
