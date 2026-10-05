@@ -46,7 +46,16 @@ class TriggerSyncJobViewTestCase(TestCase):
             interface_requirements=[HostInterfaceRequirementChoices.AGENT, HostInterfaceRequirementChoices.ANY],
         )
 
-    def _run_sync_view_test(self, urlname, kwargs, expected_obj, job_func, message_snippet, expected_return=204):
+    def _run_sync_view_test(
+        self,
+        urlname,
+        kwargs,
+        expected_obj,
+        job_func,
+        message_snippet,
+        expected_return=204,
+        expected_queue='low',
+    ):
         url = reverse(f'plugins:nbxsync:{urlname}', kwargs=kwargs)
         with patch('nbxsync.views.jobs.get_queue') as mock_get_queue:
             mock_queue = mock_get_queue.return_value
@@ -57,6 +66,7 @@ class TriggerSyncJobViewTestCase(TestCase):
 
             self.assertEqual(response.status_code, expected_return)
 
+            mock_get_queue.assert_called_once_with(expected_queue)
             mock_queue.create_job.assert_called_once_with(func=job_func, args=[expected_obj], timeout=9000)
             mock_queue.enqueue_job.assert_called_once_with(mock_job)
 
@@ -70,6 +80,7 @@ class TriggerSyncJobViewTestCase(TestCase):
             expected_obj=self.device,
             job_func='nbxsync.worker.synchost',
             message_snippet='Sync job enqueued',
+            expected_queue='high',
         )
 
     def test_invalid_host_objtype_raises_404(self):
