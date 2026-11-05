@@ -83,19 +83,23 @@ class PhysicalInterfaceIPCardinalityValidatorTests(TestCase):
         for role in ('rtr', 'fw', 'csw', 'server', 'nas', 'san'):
             with self.subTest(role=role):
                 self.set_role(role)
-                self.validator(self.candidate('10.0.75.12/24'))
-                old = self.assigned('10.0.75.18/24')
-                self.validator(self.candidate('10.0.75.12/24'))
-                old.delete()
+                interface = Interface.objects.create(
+                    device=self.device, name=f'lan-{role}', type='1000base-t',
+                )
+                self.validator(self.candidate('10.0.75.12/24', interface))
+                self.assigned('10.0.75.18/24', interface)
+                self.validator(self.candidate('10.0.75.12/24', interface))
 
     def test_other_network_roles_are_not_automatically_exempt(self):
         for role in ('sw-l2', 'aggregation-switchboard', 'cam', 'ap', 'td', 'cn', 'hpcn'):
             with self.subTest(role=role):
                 self.set_role(role)
-                old = self.assigned('10.0.75.18/24')
+                interface = Interface.objects.create(
+                    device=self.device, name=f'lan-{role}', type='1000base-t',
+                )
+                self.assigned('10.0.75.18/24', interface)
                 with self.assertRaisesMessage(ValidationError, 'Only one IPv4'):
-                    self.validator(self.candidate('10.0.75.12/24'))
-                old.delete()
+                    self.validator(self.candidate('10.0.75.12/24', interface))
 
     def test_patch_panel_rejects_even_first_ip(self):
         self.set_role('patch-panel')
