@@ -6,7 +6,7 @@ from dcim.models import DeviceRole, Interface
 from ipam.models import IPAddress
 from utilities.testing import create_test_device
 
-from nbxsync.validators import PhysicalInterfaceIPCardinalityValidator
+from nbxsync.validators.physical_interface_ip_cardinality import PhysicalInterfaceIPCardinalityValidator
 
 
 class PhysicalInterfaceIPCardinalityValidatorTests(TestCase):
