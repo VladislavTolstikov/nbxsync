@@ -9,6 +9,7 @@ from nbxsync.choices import (
     ZabbixHostInterfaceSNMPVersionChoices,
     ZabbixHostInterfaceTypeChoices,
     ZabbixHostInventoryModeChoices,
+    ZabbixInterfaceTypeChoices,
     ZabbixInterfaceUseChoices,
 )
 from nbxsync.models import (
@@ -51,6 +52,7 @@ class AutofillResult:
     hostgroups_created: int = 0
     hostgroup_assignments_created: int = 0
     interfaces_created: int = 0
+    interfaces_updated: int = 0
     template_assignments_created: int = 0
     inventory_created: int = 0
     inventory_updated: int = 0
@@ -60,7 +62,7 @@ class AutofillResult:
         return (
             f'servers +{self.server_assignments_created}/~{self.server_assignments_updated}; '
             f'groups +{self.hostgroups_created}; group assignments +{self.hostgroup_assignments_created}; '
-            f'interfaces +{self.interfaces_created}; templates +{self.template_assignments_created}; '
+            f'interfaces +{self.interfaces_created}/~{self.interfaces_updated}; templates +{self.template_assignments_created}; '
             f'inventory +{self.inventory_created}/~{self.inventory_updated}'
         )
 
@@ -331,7 +333,17 @@ def _ensure_interface(device, ct, server, rule, primary_ip, result):
         return
     differences = []
     if interface.ip_id != primary_ip.pk:
-        differences.append('IP')
+        if (
+            interface.interface_type == ZabbixInterfaceTypeChoices.DEFAULT
+            and interface.useip == ZabbixInterfaceUseChoices.IP
+        ):
+            # Primary IP is authoritative for the automatically managed default
+            # interface. Preserve manual DNS and non-default interfaces.
+            interface.ip = primary_ip
+            interface.save(update_fields=['ip'])
+            result.interfaces_updated += 1
+        else:
+            differences.append('IP')
     if interface.port != rule.port:
         differences.append('port')
     if rule.interface_type == ZabbixHostInterfaceTypeChoices.SNMP and interface.snmp_version != rule.snmp_version:
