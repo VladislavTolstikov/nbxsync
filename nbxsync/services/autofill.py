@@ -210,8 +210,8 @@ def select_rule(device) -> Rule | None:
             else:
                 template = 'D-Link DES_DGS Switch by SNMP'
             return _snmp(template, source='D-Link')
-        if manufacturer == 'hp' and 'officeconnect' in model:
-            return _snmp('Network Generic Device by SNMP', source='HP OfficeConnect')
+        if manufacturer == 'hp' and model in {'1810-24', 'officeconnect 1810-24', 'hp officeconnect 1810-24'}:
+            return _snmp('HP OfficeConnect 1810-24 by SNMP', source='HP OfficeConnect 1810-24')
 
     if role == 'hvac' and ('срк-3.1' in model or 'srk-3.1' in model):
         return _snmp('SRK 3.1', ZabbixHostInterfaceSNMPVersionChoices.SNMPV1, 'SRK-3.1')
